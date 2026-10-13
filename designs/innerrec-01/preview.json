@@ -1,0 +1,739 @@
+{
+  "previewSchemaVersion": "1.0.0",
+  "designId": "innerrec-01",
+  "designVersion": "v0.6.4-d1",
+  "pages": [
+    {
+      "id": "workbench",
+      "title": "我的录制 · 文件工作台",
+      "viewport": {
+        "widthDp": 1280,
+        "heightDp": 800,
+        "orientation": "landscape"
+      },
+      "root": {
+        "id": "root",
+        "type": "frame",
+        "props": {
+          "direction": "row",
+          "layoutMode": "absolute"
+        },
+        "children": [
+          {
+            "id": "sidebar",
+            "type": "frame",
+            "props": {
+              "direction": "column",
+              "layoutMode": "flow",
+              "gap": 12,
+              "padding": 16
+            },
+            "layout": {
+              "mode": "absolute",
+              "x": 0,
+              "y": 0,
+              "width": 230,
+              "height": 800
+            },
+            "children": [
+              {
+                "id": "brand",
+                "type": "card",
+                "props": {
+                  "title": "录制助手",
+                  "subtitle": "INNERREC STUDIO"
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "navhead",
+                "type": "text",
+                "props": {
+                  "text": "文件库",
+                  "size": 11,
+                  "weight": "medium",
+                  "tone": "tertiary"
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "nav-all",
+                "type": "button",
+                "props": {
+                  "label": "全部文件",
+                  "variant": "primary",
+                  "disabled": false
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "nav-video",
+                "type": "button",
+                "props": {
+                  "label": "屏幕录制",
+                  "variant": "ghost",
+                  "disabled": false
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "nav-audio",
+                "type": "button",
+                "props": {
+                  "label": "内部录音",
+                  "variant": "ghost",
+                  "disabled": false
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "nav-extract",
+                "type": "button",
+                "props": {
+                  "label": "提取音频",
+                  "variant": "ghost",
+                  "disabled": false
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "nav-div",
+                "type": "divider",
+                "props": {},
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "settings",
+                "type": "button",
+                "props": {
+                  "label": "设置与工具",
+                  "variant": "ghost",
+                  "disabled": false
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "hint",
+                "type": "text",
+                "props": {
+                  "text": "轻装工作，安心录制",
+                  "size": 11,
+                  "weight": "normal",
+                  "tone": "tertiary"
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              }
+            ]
+          },
+          {
+            "id": "main",
+            "type": "frame",
+            "props": {
+              "direction": "column",
+              "layoutMode": "flow",
+              "gap": 12,
+              "padding": 16
+            },
+            "layout": {
+              "mode": "absolute",
+              "x": 230,
+              "y": 0,
+              "width": 620,
+              "height": 800
+            },
+            "children": [
+              {
+                "id": "headline",
+                "type": "frame",
+                "props": {
+                  "direction": "row",
+                  "layoutMode": "flow",
+                  "gap": 12,
+                  "padding": 0
+                },
+                "children": [
+                  {
+                    "id": "headline-text",
+                    "type": "frame",
+                    "props": {
+                      "direction": "column",
+                      "layoutMode": "flow",
+                      "gap": 4,
+                      "padding": 0
+                    },
+                    "children": [
+                      {
+                        "id": "h1",
+                        "type": "text",
+                        "props": {
+                          "text": "我的录制",
+                          "size": 26,
+                          "weight": "bold",
+                          "tone": "primary"
+                        },
+                        "layout": {
+                          "mode": "flow"
+                        }
+                      },
+                      {
+                        "id": "h1sub",
+                        "type": "text",
+                        "props": {
+                          "text": "声音和画面，都留在这里",
+                          "size": 13,
+                          "weight": "normal",
+                          "tone": "secondary"
+                        },
+                        "layout": {
+                          "mode": "flow"
+                        }
+                      }
+                    ],
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "new-record",
+                    "type": "button",
+                    "props": {
+                      "label": "＋ 新建录制",
+                      "variant": "primary",
+                      "disabled": false
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ],
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "chips",
+                "type": "frame",
+                "props": {
+                  "direction": "row",
+                  "layoutMode": "flow",
+                  "gap": 8,
+                  "padding": 0
+                },
+                "children": [
+                  {
+                    "id": "chip-all",
+                    "type": "badge",
+                    "props": {
+                      "label": "全部文件",
+                      "tone": "primary"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "chip-video",
+                    "type": "badge",
+                    "props": {
+                      "label": "屏幕录制",
+                      "tone": "secondary"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "chip-audio",
+                    "type": "badge",
+                    "props": {
+                      "label": "内部录音",
+                      "tone": "secondary"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ],
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "search",
+                "type": "frame",
+                "props": {
+                  "direction": "row",
+                  "layoutMode": "flow",
+                  "gap": 8,
+                  "padding": 8
+                },
+                "children": [
+                  {
+                    "id": "search-ico",
+                    "type": "text",
+                    "props": {
+                      "text": "⌕",
+                      "size": 13,
+                      "weight": "normal",
+                      "tone": "tertiary"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "search-ph",
+                    "type": "text",
+                    "props": {
+                      "text": "搜索剧名、集数或文件",
+                      "size": 13,
+                      "weight": "normal",
+                      "tone": "tertiary"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ],
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "rowmeta",
+                "type": "frame",
+                "props": {
+                  "direction": "row",
+                  "layoutMode": "flow",
+                  "gap": 12,
+                  "padding": 0
+                },
+                "children": [
+                  {
+                    "id": "count",
+                    "type": "text",
+                    "props": {
+                      "text": "3 个文件",
+                      "size": 11,
+                      "weight": "normal",
+                      "tone": "tertiary"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "sort",
+                    "type": "text",
+                    "props": {
+                      "text": "最新优先 ↓",
+                      "size": 11,
+                      "weight": "normal",
+                      "tone": "tertiary"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ],
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "files",
+                "type": "list",
+                "props": {
+                  "dense": false
+                },
+                "layout": {
+                  "mode": "flow"
+                },
+                "children": [
+                  {
+                    "id": "file-1",
+                    "type": "list-item",
+                    "props": {
+                      "label": "末日宿舍求生：从刷广告开始变强",
+                      "meta": "第 04 集 · 录屏 · 00:38 · 3.0 MB",
+                      "trailing": "›"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "file-2",
+                    "type": "list-item",
+                    "props": {
+                      "label": "末日宿舍求生：从刷广告开始变强",
+                      "meta": "第 06 集 · 录屏 · 01:02 · 4.8 MB",
+                      "trailing": "›"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "file-3",
+                    "type": "list-item",
+                    "props": {
+                      "label": "短剧片段 · 内部音频",
+                      "meta": "未识别剧集 · 录音 · 01:42 · 12.6 MB",
+                      "trailing": "›"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "dock",
+                "type": "frame",
+                "props": {
+                  "direction": "row",
+                  "layoutMode": "flow",
+                  "gap": 8,
+                  "padding": 0
+                },
+                "children": [
+                  {
+                    "id": "dock-audio",
+                    "type": "button",
+                    "props": {
+                      "label": "♫ 内部录音",
+                      "variant": "ghost",
+                      "disabled": false
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "dock-video",
+                    "type": "button",
+                    "props": {
+                      "label": "▣ 屏幕录制",
+                      "variant": "ghost",
+                      "disabled": false
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "dock-capsule",
+                    "type": "button",
+                    "props": {
+                      "label": "◧ 悬浮胶囊",
+                      "variant": "ghost",
+                      "disabled": false
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ],
+                "layout": {
+                  "mode": "flow"
+                }
+              }
+            ]
+          },
+          {
+            "id": "detail",
+            "type": "frame",
+            "props": {
+              "direction": "column",
+              "layoutMode": "flow",
+              "gap": 12,
+              "padding": 16
+            },
+            "layout": {
+              "mode": "absolute",
+              "x": 850,
+              "y": 0,
+              "width": 430,
+              "height": 800
+            },
+            "children": [
+              {
+                "id": "detail-head",
+                "type": "frame",
+                "props": {
+                  "direction": "row",
+                  "layoutMode": "flow",
+                  "gap": 8,
+                  "padding": 0
+                },
+                "children": [
+                  {
+                    "id": "back",
+                    "type": "button",
+                    "props": {
+                      "label": "← 返回文件",
+                      "variant": "ghost",
+                      "disabled": false
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "dh2",
+                    "type": "text",
+                    "props": {
+                      "text": "文件详情",
+                      "size": 17,
+                      "weight": "semibold",
+                      "tone": "primary"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "more",
+                    "type": "button",
+                    "props": {
+                      "label": "⋯",
+                      "variant": "ghost",
+                      "disabled": false
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ],
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "preview",
+                "type": "image-placeholder",
+                "props": {
+                  "label": "▷ 预览区"
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "detail-title",
+                "type": "frame",
+                "props": {
+                  "direction": "column",
+                  "layoutMode": "flow",
+                  "gap": 4,
+                  "padding": 0
+                },
+                "children": [
+                  {
+                    "id": "dt",
+                    "type": "text",
+                    "props": {
+                      "text": "末日宿舍求生：从刷广告开始变强",
+                      "size": 17,
+                      "weight": "semibold",
+                      "tone": "primary"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "dm",
+                    "type": "text",
+                    "props": {
+                      "text": "第 04 集 · 屏幕录制 · 3.0 MB · 00:38",
+                      "size": 11,
+                      "weight": "normal",
+                      "tone": "tertiary"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ],
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "detail-div",
+                "type": "divider",
+                "props": {},
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "recognize",
+                "type": "frame",
+                "props": {
+                  "direction": "row",
+                  "layoutMode": "flow",
+                  "gap": 12,
+                  "padding": 0
+                },
+                "children": [
+                  {
+                    "id": "ocr-ico",
+                    "type": "text",
+                    "props": {
+                      "text": "▧",
+                      "size": 22,
+                      "weight": "normal",
+                      "tone": "primary"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "ocr-text",
+                    "type": "frame",
+                    "props": {
+                      "direction": "column",
+                      "layoutMode": "flow",
+                      "gap": 4,
+                      "padding": 0
+                    },
+                    "children": [
+                      {
+                        "id": "ocr-b",
+                        "type": "text",
+                        "props": {
+                          "text": "智能识别",
+                          "size": 13,
+                          "weight": "semibold",
+                          "tone": "primary"
+                        },
+                        "layout": {
+                          "mode": "flow"
+                        }
+                      },
+                      {
+                        "id": "ocr-sub",
+                        "type": "text",
+                        "props": {
+                          "text": "已确认 · 第 04 集",
+                          "size": 11,
+                          "weight": "normal",
+                          "tone": "secondary"
+                        },
+                        "layout": {
+                          "mode": "flow"
+                        }
+                      }
+                    ],
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "ocr-badge",
+                    "type": "badge",
+                    "props": {
+                      "label": "已索引",
+                      "tone": "success"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ],
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "ocr-open",
+                "type": "button",
+                "props": {
+                  "label": "查看与确认识别",
+                  "variant": "ghost",
+                  "disabled": false
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "actions",
+                "type": "frame",
+                "props": {
+                  "direction": "row",
+                  "layoutMode": "flow",
+                  "gap": 8,
+                  "padding": 0
+                },
+                "children": [
+                  {
+                    "id": "play",
+                    "type": "button",
+                    "props": {
+                      "label": "▷ 播放文件",
+                      "variant": "primary",
+                      "disabled": false
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "rename",
+                    "type": "button",
+                    "props": {
+                      "label": "重命名",
+                      "variant": "ghost",
+                      "disabled": false
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "export",
+                    "type": "button",
+                    "props": {
+                      "label": "导出文字",
+                      "variant": "ghost",
+                      "disabled": false
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ],
+                "layout": {
+                  "mode": "flow"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

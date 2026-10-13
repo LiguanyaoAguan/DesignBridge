@@ -832,6 +832,155 @@ await run(async () => {
   return expect('P1 最近一次失败但有历史有效交付：显示失败并标注保留', true, '❌ + 保留提示');
 });
 
+// ── 4.7c P2：designTokens → 画布样式（通用映射 / 回退 / 作用域 / 注入防护）──────
+// 契约的 designTokens 是自由 key→value；插件按**角色名约定**解析成 CSS 变量挂到画布上。
+// 这套用例证明：映射是通用的（不认识任何具体设计）、缺失会回退、只作用于画布、非法值被丢弃。
+
+const CONVENTION_TOKENS = {
+  'color.background': '#F6F7F8',
+  'color.panel': '#FFFFFF',
+  'color.textPrimary': '#292E36',
+  'color.textSecondary': '#9298A2',
+  'color.border': '#EBEDF0',
+  'color.accent': '#E98B4C',
+  'color.accentSoft': '#FFF0E5',
+  'color.onAccent': '#FFFFFF',
+  'color.success': '#568567',
+  'color.successSoft': '#EDF6EF',
+  'radius.cardPx': 15,
+  'radius.buttonPx': 12,
+  'radius.pillPx': 40,
+  'radius.windowPx': 20,
+};
+
+/** 用给定 designTokens 提供契约（其余字段沿用仓库契约，保证 preview 仍能通过交叉校验）。 */
+function serveContractTokens(designTokens) {
+  const contract = { ...checkedInContract, designTokens };
+  return async (_session, path) => {
+    if (path.endsWith('protocol/design-contract.json')) {
+      return textResult(JSON.stringify(contract), { absolutePath: `/workspace-example/${path}`, version: 'contract-v1' });
+    }
+    if (path.endsWith('delivery-index.json')) {
+      return { ok: false, error: { code: 'workspace-file/not-found', message: 'ENOENT: no index' } };
+    }
+    return textResult(previewText, { absolutePath: `/workspace-example/${path}`, version: 'preview-v1' });
+  };
+}
+
+/** 精确取出画布 page **元素自身**的 style 属性（CSS 块里也有 var(--db-…)，不能拿整页 HTML 判断）。 */
+function pageStyleOf(html) {
+  const m = html.match(/className="db-preview-page"[^>]*?style="([^"]*)"/);
+  return m ? m[1] : null;
+}
+
+await run(async () => {
+  read_impl = serveContractTokens(CONVENTION_TOKENS);
+  const { html, phase } = await render_panel(Panel, propsFor('s1'));
+  assert(phase === 'ready', `应 ready，实际 ${phase}`);
+  const expected = [
+    ['--db-canvas-bg', '#F6F7F8'], ['--db-surface', '#FFFFFF'],
+    ['--db-text-primary', '#292E36'], ['--db-text-secondary', '#9298A2'],
+    ['--db-border', '#EBEDF0'], ['--db-accent', '#E98B4C'],
+    ['--db-accent-soft', '#FFF0E5'], ['--db-accent-ink', '#FFFFFF'],
+    ['--db-success', '#568567'], ['--db-success-soft', '#EDF6EF'],
+    ['--db-radius-card', '15px'], ['--db-radius-button', '12px'],
+    ['--db-radius-pill', '40px'], ['--db-radius-window', '20px'],
+  ];
+  for (const [name, value] of expected) assert(html.includes(`${name}:${value}`), `画布应带 ${name}:${value}`);
+  assert(html.includes('data-db-tokens-resolved="14"'), '解析计数应为 14');
+  return expect('P2 样式映射：契约 tokens 按角色落到画布 CSS 变量', true, '14 个角色（10 色 + 4 圆角）');
+});
+
+await run(async () => {
+  read_impl = serveContractTokens({ 'color.accent': '#123456' });
+  const { html } = await render_panel(Panel, propsFor('s1'));
+  assert(html.includes('--db-accent:#123456'), '应解析 color.accent');
+  const st = pageStyleOf(html);
+  assert(st !== null, '应能取到画布 style');
+  assert(!st.includes('--db-canvas-bg'), '未声明的角色不得凭空出现');
+  assert(html.includes('data-db-tokens-resolved="1"'), '解析计数应为 1');
+  return expect('P2 部分回退：只映射已声明的角色', true, '仅 --db-accent');
+});
+
+await run(async () => {
+  read_impl = serveContractTokens({});
+  const { html, phase } = await render_panel(Panel, propsFor('s1'));
+  assert(phase === 'ready', '空 tokens 不应影响渲染');
+  const st = pageStyleOf(html);
+  assert(st !== null, '应能取到画布 style');
+  assert(!st.includes('--db-'), '无 tokens 时画布不得注入任何 --db-* 变量');
+  assert(html.includes('data-db-tokens-resolved="0"'), '解析计数应为 0');
+  return expect('P2 全量回退：无 tokens 时画布完全不改样式', true, '0 个角色 → 走 Studio 主题');
+});
+
+await run(async () => {
+  read_impl = serveContractTokens({
+    'color.accent': 'red; } body { display:none } .x{',
+    'color.accentSoft': '#FFF0E5',
+    'radius.cardPx': -3,
+  });
+  const { html } = await render_panel(Panel, propsFor('s1'));
+  const st = pageStyleOf(html);
+  assert(st !== null, '应能取到画布 style');
+  assert(!st.includes('display:none') && !st.includes('red'), '恶意值绝不能进入画布 style');
+  assert(st.includes('--db-accent-soft:#FFF0E5'), '合法值仍应生效');
+  assert(!st.includes('--db-accent:'), '非法颜色应被丢弃');
+  assert(!st.includes('--db-radius-card'), '非法半径应被丢弃');
+  assert(html.includes('data-db-tokens-ignored="2"'), '应记录 2 个被忽略的非法值');
+  return expect('P2 注入防护：非法 token 值被丢弃并计数', true, '丢弃 2 个、保留 1 个');
+});
+
+await run(async () => {
+  read_impl = serveContractTokens(CONVENTION_TOKENS);
+  const { html } = await render_panel(Panel, propsFor('s1'));
+  const styleEnd = html.indexOf('</style>');
+  const pageAt = html.indexOf('className="db-preview-page"');
+  assert(styleEnd >= 0 && pageAt > styleEnd, `应存在样式表与画布 page（styleEnd=${styleEnd} pageAt=${pageAt}）`);
+  assert(!html.slice(styleEnd, pageAt).includes('--db-'), 'Studio 外壳不得出现 --db-* 变量');
+  assert((pageStyleOf(html) || '').includes('--db-canvas-bg:#F6F7F8'), '变量应挂在画布 page 上');
+  return expect('P2 作用域隔离：样式变量只在画布内，不动 Studio 外壳', true, '外壳 0 处，画布命中');
+});
+
+await run(async () => {
+  read_impl = serveContractTokens(CONVENTION_TOKENS);
+  const { html } = await render_panel(Panel, propsFor('s1'));
+  assert(html.includes('data-db-variant="primary"'), '应输出主按钮 variant');
+  assert(html.includes('data-db-tone="success"'), '应输出 badge 的 tone');
+  assert(html.includes('data-db-tone="secondary"'), '应输出 text 的 tone');
+  return expect('P2 变体与 tone 落到 DOM 属性（供 CSS 选择）', true, 'variant/tone 均存在');
+});
+
+await run(async () => {
+  // 回归：**旧命名法**（仓库既有设计的写法）靠别名命中；但它只声明了背景/卡片/强调，
+  // **没有文字色** → 画布组必须被门控丢弃（否则浅底配浅字不可读），
+  // 而独立角色（强调色、圆角）照常生效。这保证既有设计不会被改坏。
+  const legacy = { accent: '#4C8DFF', surface: '#FFFFFF', canvas: '#F6F7F8', cardRadiusDp: 16 };
+  read_impl = serveContractTokens(legacy);
+  const { html, phase } = await render_panel(Panel, propsFor('s1'));
+  assert(phase === 'ready', `应仍为 ready，实际 ${phase}`);
+  const st = pageStyleOf(html) || '';
+  assert(!st.includes('--db-canvas-bg'), '缺文字色时不得改画布背景');
+  assert(!st.includes('--db-surface'), '缺文字色时不得改卡片底色的画布组');
+  assert(st.includes('--db-accent:#4C8DFF'), '强调色属独立角色，仍应生效');
+  assert(st.includes('--db-radius-card:16px'), '圆角属独立角色，仍应生效');
+  assert(html.includes('data-db-tokens-gated="2"'), '应记录 2 个被门控的画布组角色');
+  assert(html.includes('data-node-id="root"'), '画布结构应完好');
+  return expect('P2 成组门控：缺文字色的设计不会把画布改成不可读', true, '画布组丢弃 2 项，accent/圆角生效');
+});
+
+await run(async () => {
+  // 补齐文字色后，同一份旧命名法 tokens 应**完整**生效（门控解除）
+  const legacyFull = { accent: '#4C8DFF', surface: '#FFFFFF', canvas: '#F6F7F8', cardRadiusDp: 16, ink: '#1F2430', muted: '#7A828E' };
+  read_impl = serveContractTokens(legacyFull);
+  const { html } = await render_panel(Panel, propsFor('s1'));
+  const st = pageStyleOf(html) || '';
+  assert(st.includes('--db-canvas-bg:#F6F7F8'), '补齐文字色后画布背景应生效');
+  assert(st.includes('--db-surface:#FFFFFF'), '补齐文字色后卡片底色应生效');
+  assert(st.includes('--db-text-primary:#1F2430'), '主文字应生效');
+  assert(html.includes('data-db-tokens-gated="0"'), '不应再有被门控的角色');
+  return expect('P2 门控解除：补齐文字色后画布组整体生效', true, 'ink/muted 别名命中');
+});
+
 // ── 4.75 回归：preview 读取路径必须以「会话工作区根」为基准 ──────────────────
 // 真机踩过的 bug：契约读的是 `${DESIGN_ROOT}/protocol/...`，而 preview 读的是
 // `designs/...`（漏了 DESIGN_ROOT 前缀）→ 去工作区根下找 → workspace-file/not-found。

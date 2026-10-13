@@ -317,23 +317,29 @@ window.__ModuleLoader__.load({
 .db-preview-pages { max-width:100%; }
 .db-preview-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; min-width:0; }
 .db-preview-viewport { max-width:100%; overflow:auto; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-base); padding:8px; }
-.db-preview-page { position:relative; box-sizing:border-box; overflow:auto; background:var(--dsw-alias-bg-l1); color:var(--dsw-alias-label-primary); border:1px solid var(--dsw-alias-border-l2); border-radius:8px; transform-origin:top left; }
-.db-preview-page-title { position:sticky; top:0; z-index:2; padding:5px 8px; background:var(--dsw-alias-bg-l1); color:var(--dsw-alias-label-secondary); font-size:11px; }
+.db-preview-page { position:relative; box-sizing:border-box; overflow:auto; background:var(--db-canvas-bg,var(--dsw-alias-bg-l1)); color:var(--db-text-primary,var(--dsw-alias-label-primary)); border:1px solid var(--db-border,var(--dsw-alias-border-l2)); border-radius:var(--db-radius-window,8px); transform-origin:top left; }
+.db-preview-page-title { position:sticky; top:0; z-index:2; padding:5px 8px; background:var(--db-canvas-bg,var(--dsw-alias-bg-l1)); color:var(--db-text-secondary,var(--dsw-alias-label-secondary)); font-size:11px; }
 .db-preview-node { box-sizing:border-box; min-width:0; cursor:pointer; outline:1px solid transparent; border-radius:6px; color:inherit; }
 .db-preview-node:hover { outline:1px dashed var(--dsw-alias-brand-primary); }
 .db-preview-node.is-selected { outline:2px solid var(--dsw-alias-brand-primary); outline-offset:1px; }
 .db-preview-frame { width:100%; }
-.db-preview-card { padding:10px; border:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-base); display:flex; flex-direction:column; gap:6px; }
+.db-preview-card { padding:10px; border:1px solid var(--db-border,var(--dsw-alias-border-l2)); background:var(--db-surface,var(--dsw-alias-bg-base)); border-radius:var(--db-radius-card,10px); display:flex; flex-direction:column; gap:6px; }
 .db-preview-card > strong { font-size:14px; }
-.db-preview-card > small,.db-preview-listitem small { color:var(--dsw-alias-label-secondary); }
+.db-preview-card > small,.db-preview-listitem small { color:var(--db-text-secondary,var(--dsw-alias-label-secondary)); }
 .db-preview-list { display:flex; flex-direction:column; gap:4px; min-width:120px; }
-.db-preview-listitem { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px; padding:7px; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l2); }
-.db-preview-text { overflow-wrap:anywhere; }
-.db-preview-button { align-self:flex-start; border:1px solid var(--dsw-alias-border-l2); border-radius:7px; padding:6px 10px; background:var(--dsw-alias-bg-base); }
+.db-preview-listitem { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px; padding:7px; border:1px solid var(--db-border,var(--dsw-alias-border-l2)); background:var(--db-surface,var(--dsw-alias-bg-base)); border-radius:var(--db-radius-card,0); }
+.db-preview-text { overflow-wrap:anywhere; color:var(--db-text-primary,inherit); }
+.db-preview-text[data-db-tone="secondary"] { color:var(--db-text-secondary,var(--dsw-alias-label-secondary)); }
+.db-preview-text[data-db-tone="tertiary"] { color:var(--db-text-secondary,var(--dsw-alias-label-tertiary)); }
+.db-preview-button { align-self:flex-start; border:1px solid var(--db-border,var(--dsw-alias-border-l2)); border-radius:var(--db-radius-button,7px); padding:6px 10px; background:var(--db-surface,var(--dsw-alias-bg-base)); color:var(--db-text-primary,var(--dsw-alias-label-primary)); }
+.db-preview-button[data-db-variant="primary"] { background:var(--db-accent,var(--dsw-alias-button-primary-fill)); border-color:var(--db-accent,var(--dsw-alias-border-l2)); color:var(--db-accent-ink,var(--dsw-alias-label-primary-inverted)); font-weight:600; }
+.db-preview-button[data-db-variant="ghost"] { background:transparent; border-color:transparent; color:var(--db-text-secondary,var(--dsw-alias-label-secondary)); }
 .db-preview-button.is-disabled { opacity:.55; }
-.db-preview-badge { align-self:flex-start; border-radius:999px; padding:2px 8px; background:var(--dsw-alias-bg-l2); }
-.db-preview-divider { height:1px; width:100%; background:var(--dsw-alias-border-l2); }
-.db-preview-image-placeholder { min-height:80px; display:grid; place-items:center; border:1px dashed var(--dsw-alias-border-l2); color:var(--dsw-alias-label-tertiary); }
+.db-preview-badge { align-self:flex-start; border-radius:var(--db-radius-button,999px); padding:2px 8px; background:var(--dsw-alias-bg-l2); color:var(--db-text-secondary,var(--dsw-alias-label-secondary)); }
+.db-preview-badge[data-db-tone="primary"] { background:var(--db-accent-soft,var(--dsw-alias-bg-l2)); color:var(--db-accent,var(--dsw-alias-label-secondary)); }
+.db-preview-badge[data-db-tone="success"] { background:var(--db-success-soft,var(--dsw-alias-bg-l2)); color:var(--db-success,var(--dsw-alias-state-success-primary)); }
+.db-preview-divider { height:1px; width:100%; background:var(--db-border,var(--dsw-alias-border-l2)); }
+.db-preview-image-placeholder { min-height:80px; display:grid; place-items:center; border:1px dashed var(--db-border,var(--dsw-alias-border-l2)); border-radius:var(--db-radius-card,0); background:var(--db-surface,transparent); color:var(--db-text-secondary,var(--dsw-alias-label-tertiary)); }
 .db-preview-selection { min-width:0; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; padding:10px; overflow-wrap:anywhere; }
 .db-preview-selection h3 { margin:0 0 6px; font-size:13px; }
 .db-preview-selection dl { display:grid; grid-template-columns:65px minmax(0,1fr); gap:4px; margin:0; font-size:11px; }
@@ -810,6 +816,135 @@ window.__ModuleLoader__.load({
       return null;
     }
 
+    // ── P2：designTokens → 画布样式（**通用**映射，不含任何具体设计的硬编码）──────
+    //
+    // 机制：契约里的 designTokens 是自由 key→value 映射。这里按**角色名约定**把 key
+    // 解析成一组 CSS 变量，挂到画布 page 元素上（CSS 变量会向下继承），
+    // 于是"不同设计 → 不同视觉风格"，而插件代码里**不出现任何设计专属的颜色**。
+    //
+    // 任何设计只要按下列任一别名命名 token，就会被自动识别；**一个都没有就整组回退**
+    // 到 Studio 原有主题 token（因此老设计不会因为本特性而变样或报错）。
+    const STYLE_TOKEN_ROLES = Object.freeze({
+      canvasBg: ['color.background', 'color.bg', 'canvas', 'background'],
+      surface: ['color.panel', 'color.surface', 'surface', 'panel'],
+      textPrimary: ['color.textPrimary', 'color.ink', 'textPrimary', 'ink'],
+      textSecondary: ['color.textSecondary', 'color.muted', 'textSecondary', 'muted'],
+      border: ['color.border', 'color.line', 'border', 'line'],
+      accent: ['color.accent', 'accent', 'brand'],
+      accentSoft: ['color.accentSoft', 'accentSoft'],
+      accentInk: ['color.onAccent', 'color.accentInk', 'onAccent'],
+      success: ['color.success'],
+      successSoft: ['color.successSoft'],
+      floating: ['color.floatingDark', 'color.dark', 'floatingDark', 'dark'],
+      radiusCard: ['radius.cardPx', 'cardRadiusDp', 'radius.card'],
+      radiusButton: ['radius.buttonPx', 'radius.button'],
+      radiusPill: ['radius.pillPx', 'radius.pill'],
+      radiusWindow: ['radius.windowPx', 'radius.window'],
+    });
+
+    /**
+     * **画布组**：必须"背景 + 主文字"同时可用才整组生效。
+     *
+     * 为什么需要成组门控：若只应用了背景（或卡片底色）而设计没声明文字色，
+     * 文字会回退到 Studio 主题色 —— 浅底配浅字直接不可读（实测踩到：
+     * 某既有设计声明了 canvas/surface 但没有文字色，画布变浅后文字几乎看不见）。
+     * 门控是**通用规则**，不认识任何具体设计。
+     */
+    const CANVAS_GROUP_ROLES = Object.freeze(['canvasBg', 'surface', 'textPrimary', 'textSecondary', 'border']);
+
+    /** CSS 变量名（角色 → 变量）。 */
+    const STYLE_TOKEN_CSS_VARS = Object.freeze({
+      canvasBg: '--db-canvas-bg',
+      surface: '--db-surface',
+      textPrimary: '--db-text-primary',
+      textSecondary: '--db-text-secondary',
+      border: '--db-border',
+      accent: '--db-accent',
+      accentSoft: '--db-accent-soft',
+      accentInk: '--db-accent-ink',
+      success: '--db-success',
+      successSoft: '--db-success-soft',
+      floating: '--db-floating',
+      radiusCard: '--db-radius-card',
+      radiusButton: '--db-radius-button',
+      radiusPill: '--db-radius-pill',
+      radiusWindow: '--db-radius-window',
+    });
+
+    /**
+     * 总开关：是否让 contract.designTokens 驱动画布样式。
+     * false 时画布**完全**沿用 Studio 主题（用于排查"某设计看起来变了"是否由本特性引起）。
+     */
+    const APPLY_DESIGN_TOKENS = true;
+
+    /** token 值里允许出现的颜色写法（**白名单**，防止设计文件注入任意 CSS）。 */
+    const SAFE_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+    const SAFE_FUNC_COLOR_RE = /^(?:rgb|rgba|hsl|hsla)\([0-9.,%\s/]+\)$/;
+
+    /** 只接受白名单内的颜色字面量；其余（含任何 `;{}`、表达式）一律丢弃。 */
+    function safeColorValue(value) {
+      if (typeof value !== 'string') return null;
+      const v = value.trim();
+      if (v.length === 0 || v.length > 64) return null;
+      return SAFE_COLOR_RE.test(v) || SAFE_FUNC_COLOR_RE.test(v) ? v : null;
+    }
+
+    /** 只接受有限数字半径（0–999），转成 px；负值/NaN/字符串一律丢弃。 */
+    function safeRadiusValue(value) {
+      const n = typeof value === 'number' ? value : typeof value === 'string' && /^\d+(?:\.\d+)?$/.test(value.trim()) ? Number(value) : NaN;
+      if (!Number.isFinite(n) || n < 0 || n > 999) return null;
+      return `${n}px`;
+    }
+
+    /**
+     * 把 designTokens 解析成 CSS 变量对象（可直接展开进 React 的 style）。
+     * 纯函数、无 IO：因此可脱离宿主单独验证。**不修改** tokens，也不读任何设计专属常量。
+     * @returns {{ vars: Record<string,string>, resolved: string[], ignored: string[] }}
+     */
+    function resolveStyleTokens(designTokens) {
+      const vars = {};
+      const resolved = [];
+      const ignored = [];
+      const gated = [];
+      if (!APPLY_DESIGN_TOKENS) return { vars, resolved, ignored, gated };
+      if (designTokens === null || typeof designTokens !== 'object' || Array.isArray(designTokens)) {
+        return { vars, resolved, ignored, gated };
+      }
+
+      // ① 先按角色收集（记下命中的 key，便于诊断）
+      const picked = {};
+      for (const [role, aliases] of Object.entries(STYLE_TOKEN_ROLES)) {
+        const key = aliases.find(candidate => Object.prototype.hasOwnProperty.call(designTokens, candidate));
+        if (key === undefined) continue;
+        const raw = designTokens[key];
+        const value = role.startsWith('radius') ? safeRadiusValue(raw) : safeColorValue(raw);
+        if (value === null) {
+          ignored.push(`${key}=${JSON.stringify(raw)}`);
+          continue;
+        }
+        picked[role] = { value, key };
+      }
+
+      // ② 画布组门控：背景与主文字必须同时可用
+      if (picked.canvasBg === undefined || picked.textPrimary === undefined) {
+        for (const role of CANVAS_GROUP_ROLES) {
+          if (picked[role] !== undefined) {
+            gated.push(`${picked[role].key}（缺 canvasBg/textPrimary，成组回退）`);
+            delete picked[role];
+          }
+        }
+      }
+
+      // ③ 产出 CSS 变量
+      for (const [role, hit] of Object.entries(picked)) {
+        const cssVar = STYLE_TOKEN_CSS_VARS[role];
+        if (cssVar === undefined) continue;
+        vars[cssVar] = hit.value;
+        resolved.push(`${role}←${hit.key}`);
+      }
+      return { vars, resolved, ignored, gated };
+    }
+
     function renderPreviewNode(node, selectedId, onSelect, parentMode) {
       if (!node || !Array.isArray(node.children) && node.children !== undefined || !node.props || typeof node.props !== 'object' || Array.isArray(node.props)) return null;
       if (!['frame','text','button','card','list','list-item','badge','divider','image-placeholder'].includes(node.type)) return null;
@@ -826,9 +961,9 @@ window.__ModuleLoader__.load({
         case 'card': return h('section', { ...common, className: `${common.className} db-preview-card` }, h('strong', null, txt(node.props.title)), node.props.subtitle ? h('small', null, txt(node.props.subtitle)) : null, ...children);
         case 'list': return h('div', { ...common, className: `${common.className} db-preview-list` }, ...children);
         case 'list-item': return h('div', { ...common, className: `${common.className} db-preview-listitem` }, h('span', null, txt(node.props.label)), node.props.meta ? h('small', null, txt(node.props.meta)) : null, node.props.trailing ? h('span', null, txt(node.props.trailing)) : null);
-        case 'text': return h('div', { ...common, className: `${common.className} db-preview-text`, style: { fontSize: `${node.props.size ?? 14}px`, fontWeight: ['bold','semibold'].includes(node.props.weight) ? 650 : node.props.weight === 'medium' ? 500 : 400, ...style } }, txt(node.props.text));
-        case 'button': return h('div', { ...common, className: `db-preview-button db-preview-node${selected ? ' is-selected' : ''}${node.props.disabled ? ' is-disabled' : ''}`, 'aria-disabled': Boolean(node.props.disabled) }, txt(node.props.label));
-        case 'badge': return h('div', { ...common, className: `${common.className} db-preview-badge` }, txt(node.props.label));
+        case 'text': return h('div', { ...common, className: `${common.className} db-preview-text`, 'data-db-tone': node.props.tone ?? 'primary', style: { fontSize: `${node.props.size ?? 14}px`, fontWeight: ['bold','semibold'].includes(node.props.weight) ? 650 : node.props.weight === 'medium' ? 500 : 400, ...style } }, txt(node.props.text));
+        case 'button': return h('div', { ...common, className: `db-preview-button db-preview-node${selected ? ' is-selected' : ''}${node.props.disabled ? ' is-disabled' : ''}`, 'data-db-variant': node.props.variant ?? 'ghost', 'aria-disabled': Boolean(node.props.disabled) }, txt(node.props.label));
+        case 'badge': return h('div', { ...common, className: `${common.className} db-preview-badge`, 'data-db-tone': node.props.tone ?? 'secondary' }, txt(node.props.label));
         case 'divider': return h('div', { ...common, className: `${common.className} db-preview-divider`, 'aria-label': 'divider' });
         case 'image-placeholder': return h('div', { ...common, className: `${common.className} db-preview-image-placeholder` }, `▧ ${txt(node.props.label)}`);
         default: return null;
@@ -1090,6 +1225,8 @@ window.__ModuleLoader__.load({
       }
       if (state.phase === 'ready') {
         const page = state.preview.pages[pageIndex] || state.preview.pages[0];
+        // designTokens → 画布 CSS 变量（通用映射；无 tokens 时为空对象 = 完全回退到 Studio 主题）
+        const styleTokens = resolveStyleTokens(state.contract ? state.contract.designTokens : null);
         children.push(h('div', { className: 'db-preview-toolbar', key: 'preview-toolbar' },
           h('strong', null, '可视化 Preview'),
           state.preview.pages.length > 1 ? h(React.Fragment, null,
@@ -1099,7 +1236,7 @@ window.__ModuleLoader__.load({
         ));
         children.push(h('div', { className: 'db-preview-layout', key: 'preview-layout' },
           h('div', { className: 'db-preview-viewport', 'data-designbridge-studio': 'canvas' },
-            h('div', { className: 'db-preview-page', style: { width: `${page.viewport.widthDp}px`, minHeight: `${page.viewport.heightDp}px` }, 'data-page-id': page.id },
+            h('div', { className: 'db-preview-page', style: { width: `${page.viewport.widthDp}px`, minHeight: `${page.viewport.heightDp}px`, ...styleTokens.vars }, 'data-page-id': page.id, 'data-db-tokens-resolved': String(styleTokens.resolved.length), 'data-db-tokens-ignored': String(styleTokens.ignored.length), 'data-db-tokens-gated': String(styleTokens.gated.length) },
               h('div', { className: 'db-preview-page-title' }, `${page.title} · ${page.id}`),
               renderPreviewNode(page.root, selectedId, id => setSelectedId(id), null))),
           h('section', { className: 'db-preview-selection', 'data-designbridge-studio': 'selection' },

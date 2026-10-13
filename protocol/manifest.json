@@ -2,13 +2,10 @@
   "schemaVersion": "1.0.0",
   "project": "DesignBridge",
   "protocolVersion": "0.1.0",
-  "designVersion": "demo-0.1",
+  "designVersion": "v0.6.4-d1",
   "transport": "github-files",
-  "status": "bootstrap",
+  "status": "acceptance",
   "paths": {
-    "designContract": "protocol/design-contract.json",
-    "task": "handoff/task.json",
-    "result": "handoff/result.json",
-    "acceptance": "protocol/acceptance-rules.md"
+    "designContract": "protocol/design-contract.json"
   }
 }
