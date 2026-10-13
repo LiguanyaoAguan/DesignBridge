@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "1.0.0",
+  "taskId": "bootstrap-connectivity-001",
+  "type": "connectivity-check",
+  "status": "ready",
+  "designVersion": "demo-0.1",
+  "target": "DesignBridge public repository",
+  "instructions": [
+    "读取 protocol/manifest.json 和 protocol/design-contract.json",
+    "校验 JSON 结构",
+    "仅在明确获授权后提交测试结果"
+  ],
+  "constraints": [
+    "不要修改 InnerRec Studio 私有仓库",
+    "不要上传任何敏感数据",
+    "不要声称模拟截图是真实验收"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0.0",
+  "taskId": "bootstrap-connectivity-001",
+  "status": "pending",
+  "designVersion": "demo-0.1",
+  "executor": null,
+  "executedAt": null,
+  "checks": [],
+  "artifacts": [],
+  "notes": "等待 DeepSeek Harness 真实执行后更新"
+}
