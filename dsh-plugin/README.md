@@ -155,7 +155,8 @@ DSH 官方技能 `cordis-plugin-development` 明确：
 |---|---|---|---|
 | 1 | **依赖 `dsh.client` / slots / sidebarRightTabs 的内部约定** | 官方文档明确 `dockkit` 等属"内部引擎"，任何版本都可能变；升级 DSH 可能使插件失效 | 只用了稳定面（`slots.register` / `sidebarRightTabs.register`）；失效表现为面板不出现，不会破坏 Harness |
 | 2 | **无法安装 `@deepseek-ai/*` 包** | 官方硬性要求（它们可能随时变更，且抛错会**让整个 slot 条目变空白**） | 全部自绘；样式只用 `--dsw-alias-*` token |
-| 3 | **`sidebar.right.pane.tab` 的注册选项字段未完全确证** | 本文用的是 `key`（依据：官方 `sidebar-right` README 与 `sidebar-browser` 的实际用法）。`templates/decoration` 用的是 `id`——但那是 `conversation.composer.dock`，**不同 slot 约定不同** | 首次挂载时若面板不出现，第一件事就是试 `id`；已记录为待验证项 |
+| 3 | ~~`sidebar.right.pane.tab` 的注册选项字段未确证~~ **已确证为 `key`** | 三处独立证据：① 该 slot 声明为 `kind: "keyed", scope: "session"`；② 渲染按 `entryKey = definition?.id ?? tab.kind` 取值；③ 宿主自己的引导页正文与 `sidebar-browser` 都用 `key`。`templates/decoration` 的 `id` 属于 `conversation.composer.dock`，**不同 slot 约定不同** | ✅ 已关闭（仍保留 `key: TAB_ID`，不改 `id`） |
+| 10 | **贡献到别人的已声明 slot 必须用 `ctx.slots.inject(key, cb)` 包装** | 直接 `ctx.slots.register` 缺少 declaration-epoch 绑定：owner 折叠后不会自动注销，重新声明后不会自动重装。宿主实现（`dsh-client-ui-renderer` 的 `inject(key, callback)`）会订阅 epoch，折叠即 dispose、再声明即重跑 | 已按官方写法包装；静态检查新增断言 |
 | 4 | **`ctx.locale` 的 `register/bind` 签名未独立验证** | 取自 `sidebar-browser` 的实际调用；若签名不同，`apply` 会抛错 | 已做降级：`ctx.locale === undefined` 时跳过，直接用内置 COPY；`apply` 内不做任何丢弃性操作 |
 | 5 | **React 版本绑定宿主** | 插件不锁定 React；宿主升到 React 19 时，`createElement`/`useState` 仍兼容，但若未来用 hooks 新特性需复核 | 只用了 React 18 就稳定的 API |
 | 6 | **未做真实 DOM 渲染验证** | 见"检查的边界" | 挂载后按验证清单第 3–7 项执行 |
@@ -164,6 +165,31 @@ DSH 官方技能 `cordis-plugin-development` 明确：
 | 9 | **未做 i18n 完整性校验** | 已注册 `zh`/`en`，但宿主语言切换的实际表现未测 | 挂载后切换语言复核 |
 
 ---
+
+## 关于 `ctx.slots.inject`（v0.3a 修订）
+
+面板正文贡献到的是 **sidebar-right 声明的子 slot**，不是本插件声明的 slot。官方写法必须包一层：
+
+```js
+ctx.effect(
+  () => ctx.slots.inject('sidebar.right.pane.tab', () =>
+    ctx.slots.register({ name: 'sidebar.right.pane.tab', key: TAB_ID }, Panel)),
+  'designbridge-studio.pane',
+);
+```
+
+依据（对照宿主源码 `dsh-client-ui-renderer/lib/client.js` 的 `inject(key, callback)`）：
+
+- 订阅该 key 的 **declaration epoch**
+- **折叠时 dispose 本贡献；之后重新声明时再执行一次**
+- slot 尚未声明时**静默等待**，而不是抛错
+- 全程包在 `ctx.effect` 内，controller 属于调用方 fiber，插件卸载即移除贡献
+- 返回幂等 disposer；slot 已声明时回调同步执行
+
+> 诚实说明：`slots.inject` 修掉的是**生命周期绑定**这处与官方写法的偏离。
+> 若首次挂载时该 slot 已被 sidebar-right 声明，裸注册**也可能**成功——
+> 所以这个修复**是否就是"面板不显示"的成因，仍需浏览器侧实测才能定论**。
+> 它**不**影响：tab 类型（引导页入口）的注册路径。
 
 ## 边界声明
 

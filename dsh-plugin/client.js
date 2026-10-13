@@ -242,15 +242,30 @@ window.__ModuleLoader__.load({
           'designbridge-studio.type',
         );
 
-        // 2) 面板正文。slot 按 `key` 与上面注册的类型 id 对应。
+        // 2) 面板正文。
+        //
+        // `sidebar.right.pane.tab` 是**由 sidebar-right 声明的子 slot**，不是本插件声明的。
+        // 往别人的已声明 slot 里贡献，官方写法是 `ctx.slots.inject(要依赖的 key, callback)`：
+        // 它会订阅该 key 的 declaration epoch——slot 折叠时 dispose 本贡献，
+        // 之后重新声明时再执行一次；slot 尚未声明时静默等待而不是抛错。
+        //
+        // 对照宿主实现（dsh-client-ui-renderer/lib/client.js 的 `inject(key, callback)`）：
+        //   - 全程包在 ctx.effect 内，controller 属于调用方 fiber，插件卸载即移除贡献
+        //   - 返回幂等 disposer
+        //   - slot 已声明时回调同步执行（设置失败会同步抛出）
+        // 官方两个活例（宿主自己的引导页正文、sidebar-browser）走的是同一条路径。
+        //
+        // slot 按 `key` 匹配（声明为 kind: "keyed"），值必须等于 tab 类型的 `id`。
         ctx.effect(
           () =>
-            ctx.slots.register(
-              {
-                name: 'sidebar.right.pane.tab',
-                key: TAB_ID,
-              },
-              Panel,
+            ctx.slots.inject('sidebar.right.pane.tab', () =>
+              ctx.slots.register(
+                {
+                  name: 'sidebar.right.pane.tab',
+                  key: TAB_ID,
+                },
+                Panel,
+              ),
             ),
           'designbridge-studio.pane',
         );

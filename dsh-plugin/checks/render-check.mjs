@@ -169,6 +169,7 @@ check('inject 不含任何 @deepseek-ai 客户端包', () => {
 
 // ── 3. 假 ctx：捕获注册，并验证 cleanup 形态 ────────────────────────────────
 const registrations = [];
+const inject_calls = [];
 const locale_copy = {};
 let locale_bound = null;
 
@@ -193,6 +194,15 @@ const ctx = {
     register(options, component) {
       registrations.push({ kind: 'slots', options, component });
       return () => {};
+    },
+    // 对照宿主 dsh-client-ui-renderer 的 inject(key, callback)：
+    // 订阅 key 的 declaration epoch；此处模拟"slot 已声明"，故同步执行回调。
+    inject(key, callback) {
+      inject_calls.push(key);
+      const dispose = callback();
+      return () => {
+        if (typeof dispose === 'function') dispose();
+      };
     },
   },
   effect(fn, label) {
@@ -234,6 +244,15 @@ check('注册了 sidebar.right.pane.tab 正文，key 与类型 id 对应', () =>
   assert(pane[0].options.key === tab_id, `key=${pane[0].options.key} 与类型 id=${tab_id} 不一致`);
   assert(typeof pane[0].component === 'function', '正文应为组件');
   return `key=${pane[0].options.key}`;
+});
+
+check('面板正文经 ctx.slots.inject 贡献（官方写法）', () => {
+  assert(inject_calls.length === 1, `应恰好 1 次 slots.inject，实际 ${inject_calls.length}`);
+  assert(
+    inject_calls[0] === 'sidebar.right.pane.tab',
+    `inject 的 key 应为 sidebar.right.pane.tab，实际 ${inject_calls[0]}`,
+  );
+  return `inject(${inject_calls[0]})`;
 });
 
 check('未注册任何不在白名单内的 slot', () => {
@@ -297,6 +316,18 @@ check('client.js 不导入任何 Harness 客户端包', () => {
   const bad = [...source.matchAll(/require\(\s*['"](@deepseek-ai\/[^'"]+)['"]\s*\)/g)].map((m) => m[1]);
   assert(bad.length === 0, `出现 Harness 包引用：${bad.join(', ')}`);
   return '仅 require("react")';
+});
+
+check('client.js 用 slots.inject 包装，且 slot 仍用 key 而非 id', () => {
+  assert(
+    /ctx\.slots\.inject\(\s*'sidebar\.right\.pane\.tab'/.test(source),
+    "应使用 ctx.slots.inject('sidebar.right.pane.tab', ...) 包装",
+  );
+  const pane_reg = source.match(/name: 'sidebar\.right\.pane\.tab',[\s\S]{0,120}?\}/);
+  assert(pane_reg !== null, '未找到 pane 注册块');
+  assert(/key:\s*TAB_ID/.test(pane_reg[0]), `pane 注册应使用 key: TAB_ID，实际片段：${pane_reg[0]}`);
+  assert(!/\bid:\s*TAB_ID/.test(pane_reg[0]), 'pane 注册不应使用 id');
+  return 'slots.inject + key: TAB_ID';
 });
 
 check('client.js 不含 eval / new Function / document.body 注入', () => {
