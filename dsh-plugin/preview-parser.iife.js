@@ -1,0 +1,1 @@
+/* Intentionally empty. The Harness classic loader has no sidecar script entry. */

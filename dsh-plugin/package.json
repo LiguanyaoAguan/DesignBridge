@@ -2,7 +2,7 @@
   "name": "designbridge-studio-plugin",
   "version": "0.3.0",
   "private": true,
-  "description": "DesignBridge Studio：DeepSeek Harness 右侧栏只读设计面板与 Preview Schema 校验（v0.3b-b2）",
+  "description": "DesignBridge Studio：DeepSeek Harness 右侧栏只读设计面板与 Preview Schema 校验（v0.3b-b3）",
   "type": "module",
   "license": "MIT",
   "exports": {
