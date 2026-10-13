@@ -1,29 +1,60 @@
 {
   "schemaVersion": "1.0.0",
-  "designId": "demo-player",
-  "designVersion": "demo-0.1",
+  "designId": "innerrec-01",
+  "designVersion": "v0.6.4-d1",
   "platform": "android-compose",
-  "screenId": "player",
-  "description": "v0.4 交付闭环演示：媒体播放器（非生产示例）",
+  "screenId": "workbench",
+  "description": "InnerRec Studio 2.0 文件工作台（原稿: design-reference/innerrec_design_handoff/index.html；本轮仅结构层转写，视觉样式见 designTokens）",
   "designTokens": {
-    "accent": "#4C8DFF",
-    "surface": "#FFFFFF",
-    "canvas": "#F6F7F8",
-    "cardRadiusDp": 16
+    "color.background": "#F6F7F8",
+    "color.panel": "#FFFFFF",
+    "color.textPrimary": "#292E36",
+    "color.textSecondary": "#9298A2",
+    "color.border": "#EBEDF0",
+    "color.accent": "#E98B4C",
+    "color.accentSoft": "#FFF0E5",
+    "color.floatingDark": "#292D35",
+    "type.fontStack": "PingFang SC, system sans-serif",
+    "type.mainTitlePx": 26,
+    "type.sectionTitlePx": 17,
+    "type.bodyPx": 13,
+    "type.metaPx": 11,
+    "radius.windowPx": 20,
+    "radius.cardPx": 15,
+    "radius.dialogPx": 24,
+    "radius.buttonPx": 12,
+    "radius.pillPx": 40,
+    "layout.leftNavigationPx": 230,
+    "layout.detailPanelPx": 430,
+    "layout.tabletBreakpointPx": 790,
+    "source.appVersionName": "0.6.4",
+    "source.appVersionCode": 11
   },
   "layout": {
     "orientation": "landscape",
     "regions": [
-      "sidebar",
-      "stage",
-      "queue"
+      "leftNavigation",
+      "fileList",
+      "detailPanel"
     ]
   },
   "changeScope": {
     "allowed": [
-      "demo-player"
+      "designs/innerrec-01/preview.json",
+      "protocol/design-contract.json",
+      "protocol/manifest.json"
     ],
-    "protected": []
+    "protected": [
+      "designs/demo-library/",
+      "designs/demo-player/",
+      "dsh-plugin/",
+      "mcp-server/",
+      "scripts/"
+    ]
   },
-  "referenceAssets": []
+  "referenceAssets": [
+    "design-reference/innerrec_design_handoff/index.html",
+    "design-reference/innerrec_design_handoff/design-tokens.json",
+    "design-reference/innerrec_design_handoff/交互验收与Codex实施说明.md"
+  ]
 }
