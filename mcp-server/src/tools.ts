@@ -5,6 +5,7 @@
  * 因此这一层拿不到任何"直接读写任意路径"的能力。
  */
 import { existsSync } from "node:fs";
+import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { WorkspaceError, atomic_write_text, read_json, resolve_readable, to_relative, type Workspace } from "./workspace.js";
 import {
@@ -151,6 +152,16 @@ export function get_design(ctx: ToolContext): DesignPayload {
     throw new ToolError("DESIGN_INVALID", `设计契约 ${contract_path} 结构不符合协议`, format_zod_error(parsed.error));
   }
 
+  // 设计契约与 manifest 必须声明同一个设计版本。
+  // 不一致意味着"取到的设计"与"协议声称的设计"不是同一份，下游无法据此验收。
+  if (parsed.data.designVersion !== manifest.designVersion) {
+    throw new ToolError(
+      "VERSION_MISMATCH",
+      "设计契约的 designVersion 与 manifest 不一致",
+      `contract.designVersion=${parsed.data.designVersion} manifest.designVersion=${manifest.designVersion}`,
+    );
+  }
+
   return { ...parsed.data, contract_file: contract_path, manifest_design_version: manifest.designVersion };
 }
 
@@ -224,12 +235,8 @@ export function submit_result(ctx: ToolContext, input: SubmitResultInput): Submi
     );
   }
 
-  // 结果文件永远不写进协议目录。显式挡住，避免"顺手覆盖"。
-  const protocol_result = normalize(manifest.paths.result);
   const outbox = normalize(ctx.outbox_dir);
-  if (outbox === protocol_result || outbox.startsWith(`${protocol_result}/`) || protocol_result.startsWith(`${outbox}/`)) {
-    throw new ToolError("WRITE_REJECTED", "隔离输出目录不得与协议结果路径重叠", `outbox=${outbox} result=${protocol_result}`);
-  }
+  assert_outbox_allowed(manifest, outbox);
 
   const stamp = input.executedAt.replace(/[:.]/g, "-");
   const suffix = randomBytes(4).toString("hex");
@@ -277,6 +284,56 @@ export function submit_result(ctx: ToolContext, input: SubmitResultInput): Submi
     checks_recorded: input.checks.length,
     note: "已写入隔离目录并通过读回校验；未修改 handoff/result.json，未执行任何 Git 操作",
   };
+}
+
+/**
+ * 隔离输出目录的准入检查。
+ *
+ * 仅仅"不等于 result 文件"是不够的——把 outbox 指到 `protocol/` 或 `handoff/`
+ * 同样会污染协议目录（比如往 `handoff/` 里塞一堆结果文件，或与协议文件同名）。
+ *
+ * 规则（全部拒绝）：
+ *   1. outbox 为空 / 等于工作区根 —— 范围过大，等同放任写入；
+ *   2. outbox 等于或位于任一**受保护路径**之内（受保护路径 = 协议文件自身与其所在目录）；
+ *   3. outbox 是任一受保护路径的**上级** —— 否则它把协议目录整个罩住了。
+ *
+ * 受保护目录由 manifest 声明的路径推导（如 `protocol/manifest.json` -> `protocol/`），
+ * 并额外把 `protocol` 固定加入，避免 manifest 被改成指向别处时失去保护。
+ */
+function assert_outbox_allowed(manifest: Manifest, outbox: string): void {
+  if (outbox.length === 0 || outbox === ".") {
+    throw new ToolError("WRITE_REJECTED", "隔离输出目录不能是工作区根目录", `outbox=${JSON.stringify(outbox)}`);
+  }
+
+  const protected_paths = new Set<string>(["protocol/manifest.json", "protocol"]);
+  for (const declared of [
+    manifest.paths.designContract,
+    manifest.paths.task,
+    manifest.paths.result,
+    manifest.paths.acceptance,
+  ]) {
+    const file = normalize(declared);
+    protected_paths.add(file);
+    const parent = normalize(dirname(file));
+    if (parent.length > 0 && parent !== ".") protected_paths.add(parent);
+  }
+
+  for (const guarded of protected_paths) {
+    if (outbox === guarded || outbox.startsWith(`${guarded}/`)) {
+      throw new ToolError(
+        "WRITE_REJECTED",
+        "隔离输出目录不得位于协议目录内",
+        `outbox=${outbox} 落在受保护路径 ${guarded} 之下`,
+      );
+    }
+    if (guarded.startsWith(`${outbox}/`)) {
+      throw new ToolError(
+        "WRITE_REJECTED",
+        "隔离输出目录不得覆盖协议路径",
+        `outbox=${outbox} 是受保护路径 ${guarded} 的上级`,
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------- helpers

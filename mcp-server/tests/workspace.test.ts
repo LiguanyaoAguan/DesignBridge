@@ -6,9 +6,11 @@
  */
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { spawn } from "node:child_process";
 
 import {
   WorkspaceError,
@@ -20,6 +22,20 @@ import {
   resolve_readable,
   to_relative,
 } from "../src/workspace.js";
+
+const here_dir = pathlib_dirname();
+function pathlib_dirname(): string {
+  // dist/tests/xxx.js -> dist/tests -> dist -> mcp-server
+  const url = import.meta.url;
+  const file = decodeURIComponent(new URL(url).pathname);
+  return file.slice(0, file.lastIndexOf("/"));
+}
+/** Android 上 process.execPath 是 linker64，不是 node（见 README）。 */
+function node_bin(): string {
+  const argv0 = process.argv0;
+  if (typeof argv0 === "string" && argv0.length > 0 && existsSync(argv0)) return argv0;
+  return "node";
+}
 
 let base = "";
 
@@ -216,6 +232,98 @@ describe("原子写入", () => {
     atomic_write_text(ws, "outbox/a.json", "{}");
     const files = readdirSync(join(dir, "outbox"));
     assert.deepEqual(files, ["a.json"], "只应有目标文件，不应有 .tmp 残留");
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("并发写入竞争（overwrite=false）", () => {
+  /**
+   * 真并发：同一路径、多个**独立进程**同时写。
+   *
+   * 用进程而不是 Promise.all —— atomic_write_text 是同步的，同一进程内根本不会交错，
+   * 那样等于没测到 TOCTOU。只有多进程并发才能真实触发 check-then-act 的窗口。
+   *
+   * 判定标准：
+   *   1. 恰好 1 个成功，其余全部因目标已存在被拒；
+   *   2. 最终文件内容**完整**且等于唯一胜者的内容（不是拼接、不是半截）。
+   */
+  it("多进程同写一个不存在的文件：恰好一个成功，内容完整", async () => {
+    const dir = make_workspace("race");
+    const ws = openWorkspace(dir);
+
+    // 把被测模块路径写进一个 .mjs 辅助脚本，供子进程 import。
+    const module_url = pathToFileURL(join(here_dir, "..", "src", "workspace.js")).href;
+    const helper = join(dir, "race-writer.mjs");
+    writeFileSync(
+      helper,
+      [
+        `import { atomic_write_text, openWorkspace } from ${JSON.stringify(module_url)};`,
+        "const [, , root, rel, marker] = process.argv;",
+        "try {",
+        '  atomic_write_text(openWorkspace(root), rel, JSON.stringify({ marker, padding: "x".repeat(4000) }), { overwrite: false });',
+        '  process.stdout.write("OK:" + marker);',
+        "} catch (e) {",
+        '  process.stdout.write(e && e.code === "WRITE_TARGET_FORBIDDEN" ? "EEXIST" : "ERR:" + (e && (e.code || e.message)));',
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const rel_target = "outbox/race.json";
+    const writers = Array.from({ length: 8 }, (_, i) => `w${i}`);
+    const outcomes = await Promise.all(
+      writers.map(
+        (marker) =>
+          new Promise<string>((settle) => {
+            const child = spawn(node_bin(), [helper, ws.root, rel_target, marker], { stdio: ["ignore", "pipe", "ignore"] });
+            let out = "";
+            child.stdout.on("data", (c: Buffer) => {
+              out += c.toString("utf8");
+            });
+            child.on("close", () => settle(out.trim()));
+            child.on("error", () => settle("SPAWN_FAILED"));
+          }),
+      ),
+    );
+
+    const ok = outcomes.filter((o) => o.startsWith("OK:"));
+    const eexist = outcomes.filter((o) => o === "EEXIST");
+    const other = outcomes.filter((o) => !o.startsWith("OK:") && o !== "EEXIST");
+
+    assert.deepEqual(other, [], `不应出现其它失败：${other.join(",")}`);
+    assert.equal(ok.length, 1, `应恰好一个成功，实际成功 ${ok.length} 个：${ok.join(",")}`);
+    assert.equal(eexist.length, writers.length - 1, "其余都应因目标已存在被拒");
+
+    // 内容必须是唯一胜者的完整内容
+    const winner = ok[0]!.slice(3);
+    const parsed = JSON.parse(readFileSync(join(dir, rel_target), "utf8")) as { marker: string; padding: string };
+    assert.equal(parsed.marker, winner, "文件内容应来自胜者");
+    assert.equal(parsed.padding.length, 4000, "内容应完整，不能是半截");
+
+    // 目录里不应残留临时文件
+    assert.deepEqual(readdirSync(join(dir, "outbox")), ["race.json"], "不应残留 .tmp");
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("目标已存在时，并发写入全部被拒且内容不变", async () => {
+    const dir = make_workspace("race-existing");
+    const ws = openWorkspace(dir);
+    atomic_write_text(ws, "outbox/taken.json", '{"owner":"original"}');
+    const before = readFileSync(join(dir, "outbox", "taken.json"), "utf8");
+
+    const results: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      try {
+        atomic_write_text(ws, "outbox/taken.json", `{"owner":"intruder-${i}"}`);
+        results.push("OK");
+      } catch (error) {
+        results.push(error instanceof WorkspaceError ? error.code : "OTHER");
+      }
+    }
+    assert.deepEqual(results, ["WRITE_TARGET_FORBIDDEN", "WRITE_TARGET_FORBIDDEN", "WRITE_TARGET_FORBIDDEN", "WRITE_TARGET_FORBIDDEN"]);
+    assert.equal(readFileSync(join(dir, "outbox", "taken.json"), "utf8"), before, "原内容必须逐字节不变");
     rmSync(dir, { recursive: true, force: true });
   });
 });

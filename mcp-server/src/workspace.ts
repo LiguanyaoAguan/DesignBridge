@@ -13,7 +13,18 @@
  * 只做 1+2 是不够的：`workspace/link/file.json` 里 link 是指向 /etc 的符号链接时，
  * 词法上完全在工作区内，实际却读到了外面。所以必须走 3/4。
  */
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -141,7 +152,23 @@ export interface AtomicWriteOptions {
 
 /**
  * 原子写入：同目录临时文件 + rename。
- * rename 在同一文件系统内是原子的，因此读方永远看不到半写入内容。
+ *
+ * 两种情况分别处理，因为**它们要保证的性质不同**：
+ *
+ * - `overwrite: true` —— 直接用 `rename` 原子替换。rename 在同一文件系统内是原子的，
+ *   读方要么看到旧内容、要么看到新内容，**永远看不到半写入**。
+ *
+ * - `overwrite: false` —— 必须保证"绝不覆盖已存在文件"，这是一个 **TOCTOU** 问题：
+ *   先 `existsSync` 再 `rename` 之间存在窗口，并发下两个写者会互相覆盖。
+ *
+ *   经典解法是 `link(2)`：链接在目标已存在时返回 EEXIST，且是原子的。
+ *   但**实测 Android 禁止 `link()`**（`/storage` 与 `/data` 下均返回 EACCES），
+ *   所以改用 `open(O_CREAT|O_EXCL)` 做原子占位——它同样是"已存在即失败"的原子原语。
+ *   占位成功后再用 `rename` 换成完整内容，因此**成功返回时内容一定是完整的**。
+ *
+ *   残留窗口（已在 README 中记明）：占位到 rename 之间，目标文件短暂为空文件；
+ *   若进程在此刻被强杀，会留下一个空文件。这是平台禁用 link() 后的取舍，
+ *   选择它是因为"成功则内容完整"比"避免空壳"更重要，且任何失败路径都会清理占位。
  */
 export function atomic_write_text(
   workspace: Workspace,
@@ -151,10 +178,6 @@ export function atomic_write_text(
 ): string {
   const overwrite = options.overwrite ?? false;
   const abs = resolve_inside(workspace, rel_path);
-
-  if (existsSync(abs) && !overwrite) {
-    throw new WorkspaceError("WRITE_TARGET_FORBIDDEN", `目标已存在且不允许覆盖：${rel_path}`);
-  }
 
   const directory = dirname(abs);
   // 父目录也需要在边界内（resolve_inside 已保证，此处用于创建）。
@@ -166,8 +189,40 @@ export function atomic_write_text(
   const temporary = join(directory, `.${randomBytes(8).toString("hex")}.tmp`);
   try {
     writeFileSync(temporary, content, { encoding: "utf8", mode: 0o644 });
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
+  }
+
+  if (overwrite) {
+    try {
+      renameSync(temporary, abs);
+    } catch (error) {
+      rmSync(temporary, { force: true });
+      throw error;
+    }
+    return abs;
+  }
+
+  // ---- 不覆盖：O_CREAT|O_EXCL 原子占位 ----
+  let claimed_fd: number;
+  try {
+    claimed_fd = openSync(abs, "wx", 0o644);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new WorkspaceError("WRITE_TARGET_FORBIDDEN", `目标已存在且不允许覆盖：${rel_path}`);
+    }
+    throw error;
+  }
+  closeSync(claimed_fd);
+
+  try {
+    // 占位已成功，说明这个名字是我们抢到的；换成完整内容。
     renameSync(temporary, abs);
   } catch (error) {
+    // 任何失败都清掉占位空壳与临时文件，绝不留下"看起来像结果"的空文件。
+    rmSync(abs, { force: true });
     rmSync(temporary, { force: true });
     throw error;
   }

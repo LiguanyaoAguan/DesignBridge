@@ -244,6 +244,32 @@ describe("get_design", () => {
     assert.deepEqual(scope.allowed, ["demo-library"]);
   });
 
+  it("design-contract 的 designVersion 与 manifest 不一致时返回 VERSION_MISMATCH", async () => {
+    const broken = mkdtempSync(join(tmpdir(), "dbdesignmismatch-"));
+    cpSync(join(REPO_ROOT, "protocol"), join(broken, "protocol"), { recursive: true });
+    cpSync(join(REPO_ROOT, "handoff"), join(broken, "handoff"), { recursive: true });
+    const contract_path = join(broken, "protocol", "design-contract.json");
+    const contract = JSON.parse(readFileSync(contract_path, "utf8")) as Record<string, unknown>;
+    contract["designVersion"] = "demo-9.9";
+    writeFileSync(contract_path, JSON.stringify(contract, null, 2), "utf8");
+
+    const t = new StdioClientTransport({
+      command: node_bin(),
+      args: [server_js],
+      cwd: broken,
+      env: { ...(process.env as Record<string, string>), DESIGNBRIDGE_ROOT: broken, DESIGNBRIDGE_OUTBOX_DIR: OUTBOX },
+    });
+    const c = new Client({ name: "t", version: "1" });
+    await c.connect(t);
+    const res = (await c.callTool({ name: "get_design", arguments: {} })) as JsonContent;
+    assert.equal(res.isError, true, "版本不一致应报错");
+    const payload = parse_json(res);
+    assert.equal(payload["code"], "VERSION_MISMATCH");
+    assert.match(String(payload["detail"]), /demo-9\.9/);
+    await c.close();
+    rmSync(broken, { recursive: true, force: true });
+  });
+
   it("路径只能来自 manifest —— 工具不接受任意路径参数", async () => {
     assert.ok(client !== undefined);
     const listed = await client.listTools();
@@ -393,22 +419,56 @@ it("工具层自带校验：SDK 之后的跨字段一致性由 handler 把关", 
     assert.ok(existsSync(join(workspace, String(b.payload["written_file"]))));
   });
 
-  it("隔离目录与协议结果目录重叠时拒绝写入", async () => {
+  /** 用指定 outbox 起一个服务端，尝试提交，返回错误码（或 "OK"）。 */
+  async function submit_with_outbox(outbox_value: string): Promise<string> {
     const t = new StdioClientTransport({
       command: node_bin(),
       args: [server_js],
       cwd: workspace,
-      env: {
-        ...(process.env as Record<string, string>),
-        DESIGNBRIDGE_ROOT: workspace,
-        DESIGNBRIDGE_OUTBOX_DIR: "handoff",
-      },
+      env: { ...(process.env as Record<string, string>), DESIGNBRIDGE_ROOT: workspace, DESIGNBRIDGE_OUTBOX_DIR: outbox_value },
     });
     const c = new Client({ name: "t", version: "1" });
     await c.connect(t);
     const res = (await c.callTool({ name: "submit_result", arguments: valid_submission() })) as JsonContent;
-    assert.equal(res.isError, true, "把 outbox 指到 handoff/ 应被拒绝");
-    assert.equal(parse_json(res)["code"], "WRITE_REJECTED");
+    let code = "OK";
+    if (res.isError === true) {
+      const text = res.content.find((x) => x.type === "text")?.text ?? "";
+      try {
+        code = String((JSON.parse(text) as Record<string, unknown>)["code"]);
+      } catch {
+        code = "PROTOCOL_REJECTED";
+      }
+    }
     await c.close();
+    return code;
+  }
+
+  // 协议目录、其子目录、工作区根、以及"罩住协议目录"的上级，全部必须拒绝。
+  for (const bad of [
+    "protocol",
+    "handoff",
+    "protocol/sub",
+    "handoff/nested",
+    "protocol/manifest.json",
+    "handoff/result.json",
+    ".",
+    "",
+  ]) {
+    it(`隔离目录被拒绝：outbox=${JSON.stringify(bad)}`, async () => {
+      const code = await submit_with_outbox(bad);
+      assert.equal(code, "WRITE_REJECTED", `outbox=${JSON.stringify(bad)} 应被拒绝，实际 ${code}`);
+    });
+  }
+
+  it("隔离目录被拒绝：outbox 指向工作区根（会罩住 protocol/）", async () => {
+    // 工作区根本身无法用相对路径表达，改用 "."：应被拒绝。
+    const code = await submit_with_outbox(".");
+    assert.equal(code, "WRITE_REJECTED");
+  });
+
+  it("合规隔离目录可正常写入", async () => {
+    const code = await submit_with_outbox("outbox-ok");
+    assert.equal(code, "OK", "普通隔离目录应允许");
+    assert.ok(existsSync(join(workspace, "outbox-ok")), "应创建出该目录");
   });
 });
