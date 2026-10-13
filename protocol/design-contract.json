@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1.0.0",
+  "designId": "demo-library",
+  "designVersion": "demo-0.1",
+  "platform": "android-compose",
+  "screenId": "library",
+  "description": "非生产环境示例，不代表 InnerRec 实际设计参数",
+  "designTokens": {
+    "accent": "#ED8B43",
+    "surface": "#FFFFFF",
+    "canvas": "#F6F7F8",
+    "cardRadiusDp": 16
+  },
+  "layout": {
+    "orientation": "landscape",
+    "regions": [
+      "navigation",
+      "recording-list",
+      "detail-panel"
+    ]
+  },
+  "changeScope": {
+    "allowed": [
+      "demo-library"
+    ],
+    "protected": []
+  },
+  "referenceAssets": []
+}
