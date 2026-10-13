@@ -1,11 +1,105 @@
 {
   "schemaVersion": "1.0.0",
   "taskId": "bootstrap-connectivity-001",
-  "status": "pending",
+  "status": "success",
   "designVersion": "demo-0.1",
-  "executor": null,
-  "executedAt": null,
-  "checks": [],
+  "executor": "DeepSeek Harness (ai-agent) on android-aarch64",
+  "executedAt": "2026-10-13T05:02:29Z",
+  "environment": {
+    "platform": "android-aarch64",
+    "node": "v24.18.0",
+    "python": "3.14.6",
+    "git": "2.56.0",
+    "note": "仅记录平台族与工具版本；公开仓库不写入设备型号/序列号/用户名/绝对路径"
+  },
+  "checks": [
+    {
+      "id": "C1-manifest.json",
+      "name": "JSON 可解析: protocol/manifest.json",
+      "status": "pass",
+      "detail": "解析成功"
+    },
+    {
+      "id": "C1-design-contract.json",
+      "name": "JSON 可解析: protocol/design-contract.json",
+      "status": "pass",
+      "detail": "解析成功"
+    },
+    {
+      "id": "C1-task.json",
+      "name": "JSON 可解析: handoff/task.json",
+      "status": "pass",
+      "detail": "解析成功"
+    },
+    {
+      "id": "C1-result.json",
+      "name": "JSON 可解析: handoff/result.json",
+      "status": "pass",
+      "detail": "解析成功"
+    },
+    {
+      "id": "C2-designContract",
+      "name": "manifest 路径存在: protocol/design-contract.json",
+      "status": "pass",
+      "detail": "存在 (609 B)"
+    },
+    {
+      "id": "C2-task",
+      "name": "manifest 路径存在: handoff/task.json",
+      "status": "pass",
+      "detail": "存在 (531 B)"
+    },
+    {
+      "id": "C2-result",
+      "name": "manifest 路径存在: handoff/result.json",
+      "status": "pass",
+      "detail": "存在 (264 B)"
+    },
+    {
+      "id": "C2-acceptance",
+      "name": "manifest 路径存在: protocol/acceptance-rules.md",
+      "status": "pass",
+      "detail": "存在 (708 B)"
+    },
+    {
+      "id": "C3-designVersion",
+      "name": "designVersion 四处一致",
+      "status": "pass",
+      "detail": "manifest=demo-0.1 contract=demo-0.1 task=demo-0.1 result=demo-0.1"
+    },
+    {
+      "id": "C3-taskId",
+      "name": "taskId 两处一致",
+      "status": "pass",
+      "detail": "task=bootstrap-connectivity-001 result=bootstrap-connectivity-001"
+    },
+    {
+      "id": "C3-schemaVersion",
+      "name": "schemaVersion 一致",
+      "status": "pass",
+      "detail": "全部 = 1.0.0"
+    }
+  ],
+  "summary": {
+    "total": 11,
+    "passed": 11,
+    "failed": 0
+  },
+  "executionEvidence": {
+    "jsonParsing": "executed",
+    "pathExistence": "executed",
+    "versionConsistency": "executed",
+    "build": "not-applicable",
+    "install": "not-applicable",
+    "screenshot": "not-applicable",
+    "note": "本任务为文件级连通性检查，协议未要求构建/安装/截图；未执行，也未声称执行"
+  },
   "artifacts": [],
-  "notes": "等待 DeepSeek Harness 真实执行后更新"
+  "manualReview": {
+    "required": true,
+    "status": "pending",
+    "by": null,
+    "note": "自动检查与人工确认分别记录（acceptance-rules 第 7 条）；人工确认由 ChatGPT 复核完成"
+  },
+  "notes": "由 DeepSeek Harness 真实执行，未使用模拟数据。共 11 项检查，通过 11 项、失败 0 项。校验对象 protocol/manifest.json 的 sha256=ddbdf17590a21367…。本次仅执行只读检查并回写本文件，未构建、未安装、未截图、未接触任何私有仓库。"
 }
