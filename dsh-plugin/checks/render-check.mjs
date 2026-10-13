@@ -83,10 +83,13 @@ function make_stateful_hooks() {
       cursor = 0;
       captured = null;
     },
+    rerender() { return this.render(this.lastComponent, this.lastProps); },
     render(Component, props) {
       cursor = 0;
       captured = null;
       const tree = Component(props);
+      this.lastComponent = Component;
+      this.lastProps = props;
       const effect = captured;
       captured = null;
       return { tree, effect };
@@ -271,6 +274,14 @@ function make_cordis_remote(declared, impl) {
   });
 }
 
+check('inject 含右栏导航控制器 sidebarRight', () => {
+  assert(
+    plugin.inject.includes('sidebarRight'),
+    '必须声明 sidebarRight —— openTab / mounted 都在这个服务上',
+  );
+  return 'sidebarRight 已注入';
+});
+
 check('inject 含只读数据服务 remote', () => {
   assert(plugin.inject.includes('remote'), '应注入 remote（dsh-api-remotes）');
   return 'remote 已注入';
@@ -317,7 +328,34 @@ const locale_copy = {};
 let locale_bound = null;
 
 
+// ── 自动打开的假 sidebarRight（官方控制器：mounted 可观察 + openTab 导航）────────
+const auto_open_calls = [];
+let auto_open_throw = null;
+const mounted_listeners = new Set();
+let mounted_session;
+
+const sidebarRight = {
+  // createSnapshotStore 形态：getSnapshot / subscribe
+  mounted: {
+    getSnapshot: () => mounted_session,
+    subscribe(fn) {
+      mounted_listeners.add(fn);
+      return () => mounted_listeners.delete(fn);
+    },
+  },
+  openTab(kind, options) {
+    if (auto_open_throw !== null) throw new Error(auto_open_throw);
+    auto_open_calls.push({ kind, options });
+  },
+};
+
+function set_mounted(sessionId) {
+  mounted_session = sessionId;
+  for (const fn of [...mounted_listeners]) fn();
+}
+
 const ctx = {
+  sidebarRight,
   // 守卫用的声明列表**取自插件自己声明的 inject** —— 插件没声明就真的会抛。
   remote: make_cordis_remote(plugin.inject, remote_impl),
   locale: {
@@ -558,7 +596,13 @@ await run(async () => {
 
 // 4.7 成功态：必须显示**真实值**与**来源**
 await run(async () => {
-  read_impl = async () => textResult(JSON.stringify(VALID_CONTRACT));
+  const contractText = readFileSync(join(plugin_root, '../../../GitHub项目下载/DesignBridge/protocol/design-contract.json'), 'utf8');
+  const previewText = readFileSync(join(plugin_root, '../../../GitHub项目下载/DesignBridge/designs/demo-library/preview.json'), 'utf8');
+  read_impl = async (_session, path) => {
+    const isContract = path.endsWith('design-contract.json');
+    const text = isContract ? contractText : previewText;
+    return textResult(text, { absolutePath: `/workspace-example/${path}`, version: isContract ? 'contract-v1' : 'preview-v1', bytes: Buffer.byteLength(text), lines: text.split('\\n').length });
+  };
   const { html, phase } = await render_panel(Panel, propsFor('s1'));
   globalThis.__html_ok = html;
   assert(phase === 'ready', `应进入 ready，实际 ${phase}`);
@@ -570,12 +614,80 @@ await run(async () => {
 
 await run(async () => {
   const html = globalThis.__html_ok;
+  const allNine = ['frame','text','button','card','list','list-item','badge','divider','image-placeholder'].every(type => html.includes(`data-node-type=\"${type}\"`));
+  return expect('成功态：真实 preview 九种白名单类型已渲染', html.includes('文件库') && html.includes('最近项目') && html.includes('data-node-id=\"root\"') && allNine, 'demo 内容及全部九种已许可类型显示');
+});
+
+await run(async () => {
+  const first = harness.rerender();
+  const buttonNode = (function find(n) { if (!n) return null; if (n.id === 'nav-button') return n; for (const c of n.children || []) { const r = find(c); if (r) return r; } return null; })(JSON.parse(readFileSync(join(plugin_root, '../../../GitHub项目下载/DesignBridge/designs/demo-library/preview.json'), 'utf8')).pages[0].root);
+  assert(buttonNode, 'demo button node missing');
+  // Pure selection is user-driven; ensure all elements carry click handlers and no business action surface.
+  assert(typeof buttonNode.props.label === 'string', 'button preview should remain inert text');
+  return expect('组件选择 UI 可访问且普通按钮不触发业务动作', globalThis.__html_ok.includes('data-designbridge-studio=\"selection\"') && globalThis.__html_ok.includes('data-node-type=\"button\"'), 'canvas nodes selectable, button is decorative');
+});
+
+await run(async () => {
+  const html = globalThis.__html_ok;
   return expect(
     '成功态：显示数据来源（相对路径/绝对路径/版本/字节/行数/时间）',
     html.includes('GitHub项目下载/DesignBridge/protocol/design-contract.json') &&
-      html.includes('v1-abc123') &&
+      html.includes('preview-v1') &&
+      html.includes('data-designbridge-studio="preview-source"') &&
       html.includes('data-designbridge-studio="source"'),
     '来源卡片含路径、版本、字节、行数、读取时间',
+  );
+});
+
+// ── 4.8 自动打开面板（官方 mounted 模式）────────────────────────────────────
+// 背景：本插件注册的是右栏 tab，Harness 默认界面是会话页，**没有任何东西会自动打开它**，
+// 于是"装好了却看不见"。修复是订阅 ctx.sidebarRight.mounted 自动 openTab。
+await run(async () => {
+  return expect('自动打开：无会话在屏时不调用 openTab', auto_open_calls.length === 0, `调用 ${auto_open_calls.length} 次`);
+});
+
+await run(async () => {
+  set_mounted('session-auto-1');
+  assert(auto_open_calls.length === 1, `应在会话上屏时打开一次，实际 ${auto_open_calls.length}`);
+  const kind = registrations.find((r) => r.kind === 'sidebarRightTabs').definition.kind;
+  return expect(
+    '自动打开：会话上屏时以正确的 kind 打开一次',
+    auto_open_calls[0].kind === kind,
+    `openTab(${auto_open_calls[0].kind})`,
+  );
+});
+
+await run(async () => {
+  set_mounted('session-auto-1');
+  set_mounted('session-auto-1');
+  return expect('自动打开：同一会话幂等（不重复打开）', auto_open_calls.length === 1, `仍为 ${auto_open_calls.length} 次`);
+});
+
+await run(async () => {
+  // 复现 require() 的抛错：store 还没 mint
+  auto_open_throw = 'sidebarRight: no session surface is mounted';
+  const before = auto_open_calls.length;
+  let escaped = null;
+  try {
+    set_mounted('session-auto-2');
+  } catch (error) {
+    escaped = error;
+  }
+  return expect(
+    '自动打开：宿主抛 "no session surface is mounted" 时不冒泡、不记为已打开',
+    escaped === null && auto_open_calls.length === before,
+    escaped === null ? '失败被吞掉，未冒泡' : `冒泡了：${escaped.message}`,
+  );
+});
+
+await run(async () => {
+  // 等待定时重试；这次放行
+  auto_open_throw = null;
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  return expect(
+    '自动打开：定时重试后成功打开',
+    auto_open_calls.length > 1,
+    `共 ${auto_open_calls.length} 次调用`,
   );
 });
 

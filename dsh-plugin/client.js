@@ -49,10 +49,31 @@ window.__ModuleLoader__.load({
     /** 设计契约相对 designRoot 的路径（与 manifest.json 声明的 paths.designContract 一致）。 */
     const CONTRACT_RELATIVE = 'protocol/design-contract.json';
 
+    /**
+     * 是否在会话上屏后**自动打开** DesignBridge 面板。
+     *
+     * 为什么需要它：本插件注册的是**右栏 tab 类型**，而 Harness 的默认界面是会话页；
+     * 右栏默认收起、也没有任何东西会自动打开这个 tab —— 于是"装好了却看不见"。
+     * 官方 README 明确认可这种自动打开：
+     *   「计划审阅的自动打开通过绑定的 hook 读取 `mounted`」
+     * 参考实现：dsh-client-ui-plan 的 PlanReviewOpen。
+     *
+     * 置 false 即可关闭（面板仍可在右栏引导页里手动打开）。
+     */
+    const AUTO_OPEN_TAB = true;
+    /** store 尚未 mint 时的重试间隔；`openTab` 此时会抛 "no session surface is mounted"。 */
+    const AUTO_OPEN_RETRY_MS = 600;
+    /** 单个会话最多尝试次数，避免无界重试。 */
+    const AUTO_OPEN_MAX_ATTEMPTS = 6;
+
+    /** 自动打开的最近一次诊断（成功/失败），显示在面板里便于排查。 */
+    let autoOpenDiag = '';
+
     /** `read` 每页最多行数上限（宿主 workspaceFiles 的 maxLines 默认为 5000）。 */
     const PAGE_MAX_LINES = 5000;
     /** 分页安全上限：防止异常数据导致无限循环。5000 × 20 = 10 万行，远超任何设计契约。 */
     const PAGE_MAX_PAGES = 20;
+    const PREVIEW_MAX_BYTES = 512 * 1024;
 
     const COPY = {
       zh: {
@@ -60,10 +81,19 @@ window.__ModuleLoader__.load({
         'guide.title': 'DesignBridge',
         'guide.description': '只读查看设计契约',
         'panel.heading': 'DesignBridge Studio',
-        'panel.subheading': '设计契约只读预览 · b-1',
+        'panel.subheading': '真实 Preview 只读可视化 · b-3',
         'panel.refresh': '重新读取',
-        'panel.loading': '正在读取设计契约…',
+        'panel.autoOpenLabel': '自动打开',
+        'panel.loading': '正在读取设计契约与真实 Preview…',
         'panel.sourceHeading': '数据来源',
+        'panel.previewHeading': 'Preview 数据来源',
+        'panel.previewPath': 'Preview 路径',
+        'panel.previewSourceHeading': 'Preview 数据来源',
+        'panel.pagePrev': '上一页',
+        'panel.pageNext': '下一页',
+        'panel.selectionHeading': '组件属性',
+        'panel.selectHint': '点击画布中的组件查看属性。',
+        'panel.noPage': 'Preview 页面数据不可用。',
         'panel.sourcePath': '相对路径',
         'panel.sourceAbsolute': '解析后绝对路径',
         'panel.sourceVersion': '文件版本',
@@ -85,7 +115,7 @@ window.__ModuleLoader__.load({
         'panel.referenceAssets': 'referenceAssets',
         'panel.none': '（空）',
         'panel.items': '{n} 项',
-        'panel.errHeading': '无法读取真实设计契约',
+        'panel.errHeading': '无法读取真实设计契约或 Preview',
         'panel.errHint': '面板不会用演示数据替代。请按下列信息排查。',
         'panel.errCode': '宿主错误码',
         'panel.errDetail': '详情',
@@ -98,6 +128,8 @@ window.__ModuleLoader__.load({
         'err.not-text': '该文件不是可读的 UTF-8 文本。',
         'err.too-large': '文件超出宿主单次读取上限，b-1 不支持分块拼装。',
         'err.read-failed': '读取失败。',
+        'err.preview-parse': 'Preview JSON 解析失败。',
+        'err.preview-schema': 'Preview 与 Schema 或 contract 不匹配。',
         'err.parse': 'JSON 解析失败。',
         'err.parseWhere': '位置',
         'err.schema': '不符合 design-contract v1 协议（校验未通过）。',
@@ -108,10 +140,19 @@ window.__ModuleLoader__.load({
         'guide.title': 'DesignBridge',
         'guide.description': 'Read-only view of the design contract',
         'panel.heading': 'DesignBridge Studio',
-        'panel.subheading': 'Design contract read-only preview - b-1',
+        'panel.subheading': 'Read-only visual preview from real preview.json - b-3',
         'panel.refresh': 'Reload',
-        'panel.loading': 'Reading design contract...',
+        'panel.autoOpenLabel': 'Auto-open',
+        'panel.loading': 'Reading design contract and real preview...',
         'panel.sourceHeading': 'Data source',
+        'panel.previewHeading': 'Preview source',
+        'panel.previewPath': 'Preview path',
+        'panel.previewSourceHeading': 'Preview data source',
+        'panel.pagePrev': 'Previous page',
+        'panel.pageNext': 'Next page',
+        'panel.selectionHeading': 'Component properties',
+        'panel.selectHint': 'Select a canvas component to inspect its properties.',
+        'panel.noPage': 'Preview page data is unavailable.',
         'panel.sourcePath': 'Relative path',
         'panel.sourceAbsolute': 'Resolved absolute path',
         'panel.sourceVersion': 'File version',
@@ -133,7 +174,7 @@ window.__ModuleLoader__.load({
         'panel.referenceAssets': 'referenceAssets',
         'panel.none': '(empty)',
         'panel.items': '{n} item(s)',
-        'panel.errHeading': 'Cannot read the real design contract',
+        'panel.errHeading': 'Cannot read the real design contract or preview',
         'panel.errHint': 'This panel never substitutes demo data. Use the details below.',
         'panel.errCode': 'Host error code',
         'panel.errDetail': 'Detail',
@@ -146,6 +187,8 @@ window.__ModuleLoader__.load({
         'err.not-text': 'The file is not readable UTF-8 text.',
         'err.too-large': 'File exceeds the host read limit; b-1 does not stitch chunks.',
         'err.read-failed': 'Read failed.',
+        'err.preview-parse': 'Preview JSON parsing failed.',
+        'err.preview-schema': 'Preview does not match its schema or contract.',
         'err.parse': 'JSON parse failed.',
         'err.parseWhere': 'At',
         'err.schema': 'Does not satisfy the design-contract v1 protocol.',
@@ -223,6 +266,34 @@ window.__ModuleLoader__.load({
 .db-studio-state { font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .db-studio-note { font-size: 12px; color: var(--dsw-alias-label-tertiary); }
 .db-studio-err { color: var(--dsw-alias-state-error-primary); }
+.db-preview-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.db-preview-pages { max-width:100%; }
+.db-preview-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; min-width:0; }
+.db-preview-viewport { max-width:100%; overflow:auto; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-base); padding:8px; }
+.db-preview-page { position:relative; box-sizing:border-box; overflow:auto; background:var(--dsw-alias-bg-l1); color:var(--dsw-alias-label-primary); border:1px solid var(--dsw-alias-border-l2); border-radius:8px; transform-origin:top left; }
+.db-preview-page-title { position:sticky; top:0; z-index:2; padding:5px 8px; background:var(--dsw-alias-bg-l1); color:var(--dsw-alias-label-secondary); font-size:11px; }
+.db-preview-node { box-sizing:border-box; min-width:0; cursor:pointer; outline:1px solid transparent; border-radius:6px; color:inherit; }
+.db-preview-node:hover { outline:1px dashed var(--dsw-alias-brand-primary); }
+.db-preview-node.is-selected { outline:2px solid var(--dsw-alias-brand-primary); outline-offset:1px; }
+.db-preview-frame { width:100%; }
+.db-preview-card { padding:10px; border:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-base); display:flex; flex-direction:column; gap:6px; }
+.db-preview-card > strong { font-size:14px; }
+.db-preview-card > small,.db-preview-listitem small { color:var(--dsw-alias-label-secondary); }
+.db-preview-list { display:flex; flex-direction:column; gap:4px; min-width:120px; }
+.db-preview-listitem { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px; padding:7px; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l2); }
+.db-preview-text { overflow-wrap:anywhere; }
+.db-preview-button { align-self:flex-start; border:1px solid var(--dsw-alias-border-l2); border-radius:7px; padding:6px 10px; background:var(--dsw-alias-bg-base); }
+.db-preview-button.is-disabled { opacity:.55; }
+.db-preview-badge { align-self:flex-start; border-radius:999px; padding:2px 8px; background:var(--dsw-alias-bg-l2); }
+.db-preview-divider { height:1px; width:100%; background:var(--dsw-alias-border-l2); }
+.db-preview-image-placeholder { min-height:80px; display:grid; place-items:center; border:1px dashed var(--dsw-alias-border-l2); color:var(--dsw-alias-label-tertiary); }
+.db-preview-selection { min-width:0; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; padding:10px; overflow-wrap:anywhere; }
+.db-preview-selection h3 { margin:0 0 6px; font-size:13px; }
+.db-preview-selection dl { display:grid; grid-template-columns:65px minmax(0,1fr); gap:4px; margin:0; font-size:11px; }
+.db-preview-selection dt { color:var(--dsw-alias-label-secondary); }
+.db-preview-selection dd { margin:0; min-width:0; }
+.db-preview-selection pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; font:inherit; }
+@media (min-width:900px) { .db-preview-layout { grid-template-columns:minmax(0,2fr) minmax(180px,1fr); } }
 .db-studio-pre {
   margin: 0; padding: 8px 10px;
   border-radius: 8px;
@@ -244,8 +315,8 @@ window.__ModuleLoader__.load({
 
     /** 判断一个路径是否合法的**工作区相对路径**（与 workspaceFiles 的路径纪律一致）。 */
     function isWorkspaceRelativePath(path) {
-      if (typeof path !== 'string' || path.length === 0) return false;
-      if (path.includes('\0')) return false;
+      if (typeof path !== 'string' || path.length === 0 || path.startsWith('/')) return false;
+      if (path.includes('\0') || path.includes('\\')) return false;
       if (path.startsWith('/')) return false; // 绝对路径
       if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(path)) return false; // URL scheme
       if (path.split('/').some((seg) => seg === '..')) return false; // 越出工作区
@@ -342,6 +413,108 @@ window.__ModuleLoader__.load({
       return Array.isArray(v) && v.every((x) => typeof x === 'string');
     }
 
+    /** Canonical b-2 schema and contract checks, kept inline for the one-file Harness loader. */
+    function validatePreviewText(text, contract) {
+      if (typeof text !== 'string') return { ok: false, errors: [{ code: 'type-mismatch', path: '$', message: 'preview 输入必须是字符串' }] };
+      let byteLength;
+      try { byteLength = new TextEncoder().encode(text).byteLength; }
+      catch { return { ok: false, errors: [{ code: 'type-mismatch', path: '$', message: '无法计算 UTF-8 字节长度' }] }; }
+      if (byteLength > PREVIEW_MAX_BYTES) return { ok: false, errors: [{ code: 'input-too-large', path: '$', message: `UTF-8 字节数超过 ${PREVIEW_MAX_BYTES}` }] };
+      let value;
+      try { value = JSON.parse(text); }
+      catch { return { ok: false, errors: [{ code: 'invalid-json', path: '$', message: 'JSON 语法无效' }] }; }
+      const result = validatePreviewWithContract(value, contract);
+      return result.ok ? result : { ...result, errors: result.errors.map(issue => ({ code: issue.code ?? 'invalid-value', path: issue.path, message: issue.message })) };
+    }
+
+    function validatePreviewWithContract(value, contract) {
+      const errors = [];
+      const add = (path, message, code = 'invalid-value') => { if (errors.length < 50) errors.push({ code, path, message }); else errors.truncatedErrors = true; };
+      const obj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+      if (!obj(value)) return { ok: false, errors: [{ code: 'type-mismatch', path: '$', message: 'preview 必须是对象' }] };
+      if (Object.keys(value).some(k => !['previewSchemaVersion','designId','designVersion','pages'].includes(k))) add('$', '包含未知字段', 'unknown-field');
+      if (!Object.prototype.hasOwnProperty.call(value, 'previewSchemaVersion')) add('$.previewSchemaVersion', '缺少必填字段', 'required-field');
+      else if (value.previewSchemaVersion !== '1.0.0') add('$.previewSchemaVersion', '不支持的 Preview Schema 版本', 'unsupported-version');
+      for (const key of ['designId','designVersion']) {
+        if (!Object.prototype.hasOwnProperty.call(value, key)) add(`$.${key}`, '缺少必填字段', 'required-field');
+        else if (typeof value[key] !== 'string') add(`$.${key}`, '必须是字符串', 'type-mismatch');
+        else if (!value[key].length || Array.from(value[key]).length > 128) add(`$.${key}`, '字符串长度必须为1–128个 Unicode 码点');
+      }
+      if (errors.truncatedErrors) return { ok: false, errors, truncatedErrors: true };
+      if (!Array.isArray(value.pages)) add('$.pages', 'pages 必须是数组', 'type-mismatch');
+      else if (value.pages.length < 1 || value.pages.length > 32) add('$.pages', 'pages 数量必须为 1–32', 'limit-exceeded');
+      if (!Array.isArray(value.pages) || value.pages.length < 1 || value.pages.length > 32) return { ok: false, errors };
+      if (value.designId !== contract.designId) add('$.designId', '与 contract.designId 不一致');
+      if (value.designVersion !== contract.designVersion) add('$.designVersion', '与 contract.designVersion 不一致');
+      const walk = (n, path, depth, parent, context) => {
+        if (errors.truncatedErrors) return;
+        if (!obj(n)) { add(path, '组件节点必须是对象', 'type-mismatch'); return; }
+        if (Object.keys(n).some(k => !['id','type','props','layout','children'].includes(k))) add(path, '包含未知字段', 'unknown-field');
+        if (typeof n.id !== 'string' || !/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(n.id) || context.ids.has(n.id)) add(`${path}.id`, 'ID 格式非法或重复', context.ids.has(n.id) ? 'duplicate-node-id' : 'invalid-value'); else context.ids.add(n.id);
+        context.count += 1;
+        if (context.count > 2000) { add(path, '每页节点数超过 2000', 'limit-exceeded'); return; }
+        if (depth > 12) { add(path, '树深度超过 12', 'limit-exceeded'); return; }
+        const types = ['frame','text','button','card','list','list-item','badge','divider','image-placeholder'];
+        if (!types.includes(n.type)) { add(`${path}.type`, '未知组件类型', 'unknown-component-type'); return; }
+        const specs = { frame:['direction','layoutMode','gap','padding'], text:['text','size','weight','tone'], button:['label','variant','disabled'], card:['title','subtitle'], list:['dense'], 'list-item':['label','meta','trailing'], badge:['label','tone'], divider:[], 'image-placeholder':['label'] };
+        if (!obj(n.props)) { add(`${path}.props`, 'props 必须是对象', 'type-mismatch'); return; }
+        if (Object.keys(n.props).some(k => !specs[n.type].includes(k))) add(`${path}.props`, '包含未知 props 字段', 'unknown-field');
+        const requiredProps = { frame:['direction','layoutMode'], text:['text'], button:['label'], card:['title'], list:[], 'list-item':['label'], badge:['label'], divider:[], 'image-placeholder':['label'] }[n.type];
+        for (const key of requiredProps) if (!(key in (n.props || {}))) add(`${path}.props.${key}`, '缺少必填属性');
+        for (const [key, val] of Object.entries(n.props || {})) if (typeof val === 'string' && Array.from(val).length > 4096) add(`${path}.props.${key}`, '字符串超过 4096 个码点');
+        const p = n.props || {};
+        const enums = { 'frame.direction':['row','column'], 'frame.layoutMode':['flow','absolute'], 'text.weight':['normal','medium','semibold','bold'], 'text.tone':['primary','secondary','tertiary'], 'button.variant':['primary','ghost'], 'badge.tone':['primary','secondary','tertiary','success','warning','danger'] };
+        for (const [key, choices] of Object.entries(enums)) { const [type, prop] = key.split('.'); if (n.type === type && p[prop] !== undefined && !choices.includes(p[prop])) add(`${path}.props.${prop}`, '枚举值无效'); }
+        if (n.type === 'frame' && (!['row','column'].includes(p.direction) || !['flow','absolute'].includes(p.layoutMode) || ['gap','padding'].some(k => p[k] !== undefined && (!Number.isFinite(p[k]) || p[k] < 0 || p[k] > 512)))) add(`${path}.props`, 'frame layout 属性无效');
+        if (n.type === 'text' && (typeof p.text !== 'string' || (p.size !== undefined && (!Number.isFinite(p.size) || p.size < 1 || p.size > 256)))) add(`${path}.props`, 'text 属性无效');
+        if (['button','card','list-item','badge','image-placeholder'].includes(n.type) && Object.entries(p).some(([k,v]) => ['label','title','subtitle','meta','trailing'].includes(k) && typeof v !== 'string')) add(`${path}.props`, '文本属性必须是字符串');
+        if (n.type === 'button' && p.disabled !== undefined && typeof p.disabled !== 'boolean') add(`${path}.props.disabled`, '必须为布尔值');
+        if (n.type === 'list' && p.dense !== undefined && typeof p.dense !== 'boolean') add(`${path}.props.dense`, '必须为布尔值');
+        if (n.layout !== undefined) {
+          if (!obj(n.layout)) add(`${path}.layout`, 'layout 必须是对象', 'type-mismatch');
+          else if (n.layout.mode === 'flow') {
+            if (Object.keys(n.layout).some(k => k !== 'mode')) add(`${path}.layout`, 'flow layout 仅允许 mode 字段', 'unknown-field');
+            if (parent?.type === 'frame' && parent.props?.layoutMode === 'absolute') add(`${path}.layout.mode`, 'absolute frame 的直接子节点不能使用 flow', 'layout-mode-conflict');
+          } else if (n.layout.mode === 'absolute') {
+            if (Object.keys(n.layout).some(k => !['mode','x','y','width','height'].includes(k))) add(`${path}.layout`, 'absolute layout 含未知字段', 'unknown-field');
+            if (parent?.type !== 'frame' || parent.props?.layoutMode !== 'absolute') add(`${path}.layout`, 'absolute layout 仅允许作为 absolute frame 的直接子节点', 'layout-mode-conflict');
+            for (const key of ['x','y','width','height']) if (!(key in n.layout)) add(`${path}.layout.${key}`, 'absolute layout 缺少坐标/尺寸', 'required-field'); else if (!Number.isFinite(n.layout[key]) || (key === 'width' || key === 'height' ? n.layout[key] <= 0 || n.layout[key] > 4096 : Math.abs(n.layout[key]) > 4096)) add(`${path}.layout.${key}`, 'absolute 几何值越界');
+          } else add(`${path}.layout.mode`, 'mode 必须为 flow 或 absolute');
+        } else if (parent?.type === 'frame' && parent.props?.layoutMode === 'absolute') add(`${path}.layout`, 'absolute frame 的直接子节点必须声明 absolute layout', 'layout-mode-conflict');
+        if (n.children !== undefined && !['frame','card','list'].includes(n.type)) add(`${path}.children`, '叶节点禁止 children', 'invalid-nesting');
+        if (n.type === 'list' && n.children === undefined) add(`${path}.children`, 'list 必须至少包含一个 list-item', 'required-field');
+        if (n.children !== undefined && !Array.isArray(n.children)) add(`${path}.children`, 'children 必须为数组', 'type-mismatch');
+        else {
+          if (n.type === 'list' && Array.isArray(n.children) && n.children.length === 0) add(`${path}.children`, 'list 必须至少包含一个 list-item', 'invalid-nesting');
+          if (n.type === 'list') n.children?.forEach((child, i) => { if (!obj(child) || child.type !== 'list-item') add(`${path}.children[${i}].type`, 'list 只允许直接包含 list-item', 'invalid-nesting'); });
+          (n.children || []).forEach((child, i) => walk(child, `${path}.children[${i}]`, depth + 1, n, context));
+        }
+      };
+      const pageIds = new Set();
+      value.pages.forEach((page, index) => {
+        if (errors.truncatedErrors) return;
+        const path = `$.pages[${index}]`;
+        const nodeContext = { ids: new Set(), count: 0 };
+        if (!obj(page)) { add(path, 'page 必须是对象', 'type-mismatch'); return; }
+        if (Object.keys(page).some(k => !['id','title','viewport','root'].includes(k))) add(path, '包含未知字段', 'unknown-field');
+        if (typeof page.id !== 'string' || !/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(page.id)) add(`${path}.id`, '页面 ID 格式非法');
+        else if (pageIds.has(page.id)) add(`${path}.id`, `页面 ID 重复：${page.id}`, 'duplicate-page-id'); else pageIds.add(page.id);
+        if (typeof page.title !== 'string') add(`${path}.title`, '必须是字符串', 'type-mismatch'); else if (!Array.from(page.title).length || Array.from(page.title).length > 120) add(`${path}.title`, '字符串长度必须为1–120个 Unicode 码点');
+        if (!obj(page.viewport)) add(`${path}.viewport`, 'viewport 必须是对象', 'type-mismatch');
+        else {
+          if (Object.keys(page.viewport).some(k => !['widthDp','heightDp','orientation'].includes(k))) add(`${path}.viewport`, 'viewport 含未知字段', 'unknown-field');
+          for (const key of ['widthDp','heightDp']) if (!(key in page.viewport)) add(`${path}.viewport.${key}`, '缺少必填字段', 'required-field'); else if (!Number.isFinite(page.viewport[key]) || page.viewport[key] <= 0 || page.viewport[key] > 4096) add(`${path}.viewport.${key}`, '必须为 >0 且 ≤4096 的有限 dp 数值');
+          if (!('orientation' in page.viewport)) add(`${path}.viewport.orientation`, '缺少必填字段', 'required-field'); else if (!['portrait','landscape'].includes(page.viewport.orientation)) add(`${path}.viewport.orientation`, '允许值：portrait, landscape');
+        }
+        if (!('root' in page)) add(`${path}.root`, '缺少必填字段', 'required-field'); else walk(page.root, `${path}.root`, 1, null, nodeContext);
+      });
+      const orientation = contract.layout && typeof contract.layout === 'object' && !Array.isArray(contract.layout) ? contract.layout.orientation : undefined;
+      if (value.designId !== contract.designId) add('$.designId', 'designId 与 contract 不一致', 'design-id-mismatch');
+      if (value.designVersion !== contract.designVersion) add('$.designVersion', 'designVersion 与 contract 不一致', 'design-version-mismatch');
+      if (Object.prototype.hasOwnProperty.call(contract, 'screenId') && !value.pages.some(page => page && page.id === contract.screenId)) add('$.pages', 'pages 未包含 contract.screenId 对应页面', 'screen-id-mismatch');
+      if (!errors.truncatedErrors && orientation !== undefined) value.pages.forEach((page, index) => { if (!errors.truncatedErrors && page?.viewport?.orientation !== orientation) add(`$.pages[${index}].viewport.orientation`, 'viewport.orientation 与 contract.layout.orientation 不一致', 'orientation-mismatch'); });
+      return errors.length ? { ok: false, errors, ...(errors.truncatedErrors ? { truncatedErrors: true } : {}) } : { ok: true, value };
+    }
     /**
      * 手写校验 design-contract v1（与 `mcp-server/src/validation.ts` 的 DesignContractSchema 同构）。
      * b-1 维持零依赖，因此不引入 Zod。返回**带路径**的问题列表。
@@ -501,7 +674,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function sourceCard(source, readAt, t) {
+    function sourceCard(source, readAt, t, cardKey = 'source', heading = 'panel.sourceHeading') {
       const rows = [
         Row(t('panel.sourcePath'), source.relativePath, 'rel'),
         Row(t('panel.sourceAbsolute'), source.absolutePath ?? '—', 'abs'),
@@ -512,8 +685,8 @@ window.__ModuleLoader__.load({
       ];
       return h(
         'div',
-        { className: 'db-studio-card', key: 'source', 'data-designbridge-studio': 'source' },
-        h('div', { className: 'db-studio-cardhead' }, t('panel.sourceHeading')),
+        { className: 'db-studio-card', key: cardKey, 'data-designbridge-studio': cardKey },
+        h('div', { className: 'db-studio-cardhead' }, t(heading)),
         rows,
       );
     }
@@ -531,10 +704,12 @@ window.__ModuleLoader__.load({
           ),
         );
       }
-      if (kind === 'schema' && Array.isArray(error.issues)) {
+      if ((kind === 'schema' || kind === 'preview-schema') && Array.isArray(error.issues)) {
         body.push(h('div', { className: 'db-studio-key', key: 'issues-head' }, t('err.schemaList')));
         body.push(h('div', { className: 'db-studio-pre', key: 'issues' }, error.issues.join('\n')));
+        if (error.truncatedErrors) body.push(h('div', { className: 'db-studio-note', key: 'issues-truncated' }, '已截断其余问题（最多显示 50 条）。'));
       }
+      if (kind === 'preview-parse' && error.detail) body.push(h('div', { className: 'db-studio-pre', key: 'preview-parse' }, error.detail));
       if (error.code) {
         body.push(Row(t('panel.errCode'), error.code, 'code'));
       }
@@ -564,6 +739,38 @@ window.__ModuleLoader__.load({
      * 面板正文。注册进 `sidebar.right.pane.tab`，key = TAB_ID。
      * `sessionId` 由 slot 的 `inject` 直接注入（见 apply 里的注册）。
      */
+    function findPreviewNode(node, id) {
+      if (!node || !id) return null;
+      if (node.id === id) return node;
+      for (const child of node.children || []) { const found = findPreviewNode(child, id); if (found) return found; }
+      return null;
+    }
+
+    function renderPreviewNode(node, selectedId, onSelect, parentMode) {
+      if (!node || !Array.isArray(node.children) && node.children !== undefined || !node.props || typeof node.props !== 'object' || Array.isArray(node.props)) return null;
+      if (!['frame','text','button','card','list','list-item','badge','divider','image-placeholder'].includes(node.type)) return null;
+      const selected = node.id === selectedId;
+      const absolute = node.layout?.mode === 'absolute';
+      const style = absolute ? { position: 'absolute', left: `${node.layout.x}px`, top: `${node.layout.y}px`, width: `${node.layout.width}px`, height: `${node.layout.height}px`, boxSizing: 'border-box' } : undefined;
+      const frameAbsolute = node.type === 'frame' && node.props.layoutMode === 'absolute';
+      const common = { key: node.id, className: `db-preview-node${selected ? ' is-selected' : ''}`, style, 'data-node-id': node.id, 'data-node-type': node.type, onClick: event => { event.stopPropagation(); onSelect(node.id); }, role: 'button', tabIndex: 0, 'aria-pressed': selected, onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(node.id); } } };
+      const childStyle = { display: frameAbsolute ? 'block' : 'flex', flexDirection: node.props?.direction === 'row' ? 'row' : 'column', gap: `${node.props?.gap ?? 8}px`, padding: `${node.props?.padding ?? 8}px`, position: frameAbsolute ? 'relative' : undefined, boxSizing: 'border-box', minWidth: 0 };
+      const children = (node.children || []).map(child => renderPreviewNode(child, selectedId, onSelect, node.type === 'frame' ? node.props.layoutMode : 'flow')).filter(Boolean);
+      const txt = v => String(v ?? '');
+      switch (node.type) {
+        case 'frame': return h('div', { ...common, className: `${common.className} db-preview-frame`, style: { ...childStyle, ...style } }, ...children);
+        case 'card': return h('section', { ...common, className: `${common.className} db-preview-card` }, h('strong', null, txt(node.props.title)), node.props.subtitle ? h('small', null, txt(node.props.subtitle)) : null, ...children);
+        case 'list': return h('div', { ...common, className: `${common.className} db-preview-list` }, ...children);
+        case 'list-item': return h('div', { ...common, className: `${common.className} db-preview-listitem` }, h('span', null, txt(node.props.label)), node.props.meta ? h('small', null, txt(node.props.meta)) : null, node.props.trailing ? h('span', null, txt(node.props.trailing)) : null);
+        case 'text': return h('div', { ...common, className: `${common.className} db-preview-text`, style: { fontSize: `${node.props.size ?? 14}px`, fontWeight: ['bold','semibold'].includes(node.props.weight) ? 650 : node.props.weight === 'medium' ? 500 : 400, ...style } }, txt(node.props.text));
+        case 'button': return h('div', { ...common, className: `db-preview-button db-preview-node${selected ? ' is-selected' : ''}${node.props.disabled ? ' is-disabled' : ''}`, 'aria-disabled': Boolean(node.props.disabled) }, txt(node.props.label));
+        case 'badge': return h('div', { ...common, className: `${common.className} db-preview-badge` }, txt(node.props.label));
+        case 'divider': return h('div', { ...common, className: `${common.className} db-preview-divider`, 'aria-label': 'divider' });
+        case 'image-placeholder': return h('div', { ...common, className: `${common.className} db-preview-image-placeholder` }, `▧ ${txt(node.props.label)}`);
+        default: return null;
+      }
+    }
+
     function Panel(props) {
       const t = useTranslate();
       const sessionId = props && props.sessionId;
@@ -571,6 +778,8 @@ window.__ModuleLoader__.load({
 
       const [state, setState] = React.useState({ phase: 'idle' });
       const [nonce, setNonce] = React.useState(0);
+      const [pageIndex, setPageIndex] = React.useState(0);
+      const [selectedId, setSelectedId] = React.useState(null);
 
       React.useEffect(() => {
         const controller = new AbortController();
@@ -598,11 +807,27 @@ window.__ModuleLoader__.load({
             });
             return;
           }
-          setState({
-            phase: 'ready',
-            contract: parsed.contract,
-            source: read.source,
-            readAt: new Date().toLocaleTimeString(),
+          const previewPath = `${DESIGN_ROOT}/designs/${parsed.contract.designId}/preview.json`;
+          const previewRelativePath = `designs/${parsed.contract.designId}/preview.json`;
+          readWorkspaceText(remote, sessionId, previewRelativePath, controller.signal).then((previewRead) => {
+            if (cancelled) return;
+            if (!previewRead.ok) {
+              setState({ phase: 'error', error: { ...previewRead, path: previewPath }, contract: parsed.contract, source: read.source });
+              return;
+            }
+            const previewResult = validatePreviewText(previewRead.text, parsed.contract);
+            if (!previewResult.ok) {
+              const result = previewResult;
+              setState({ phase: 'error', error: { kind: result.errors[0]?.code === 'invalid-json' ? 'preview-parse' : 'preview-schema', path: previewPath, detail: result.errors[0]?.message, issues: result.errors.map(issue => `${issue.path}: ${issue.message}`), truncatedErrors: result.truncatedErrors }, contract: parsed.contract, source: read.source });
+              return;
+            }
+            setPageIndex(0);
+            setSelectedId(null);
+            setState({ phase: 'ready', contract: parsed.contract, preview: previewResult.value, source: read.source, previewSource: previewRead.source, readAt: new Date().toLocaleTimeString() });
+             setPageIndex(0);
+             setSelectedId(null);
+          }).catch((error) => {
+            if (!cancelled) setState({ phase: 'error', error: { kind: 'read-failed', path: previewPath, detail: String(error?.message ?? error) }, contract: parsed.contract, source: read.source });
           });
         }).catch((error) => {
           if (cancelled) return;
@@ -616,6 +841,7 @@ window.__ModuleLoader__.load({
       }, [sessionId, remote, nonce]);
 
       const busy = state.phase === 'loading';
+      const selectedNode = state.phase === 'ready' ? findPreviewNode(state.preview.pages[pageIndex]?.root, selectedId) : null;
       const children = [
         h(StyleTag, { key: 'style' }),
         h(
@@ -650,13 +876,43 @@ window.__ModuleLoader__.load({
         children.push(errorCard(state.error, t));
       }
       if (state.phase === 'ready') {
+        const page = state.preview.pages[pageIndex] || state.preview.pages[0];
+        children.push(h('div', { className: 'db-preview-toolbar', key: 'preview-toolbar' },
+          h('strong', null, '可视化 Preview'),
+          state.preview.pages.length > 1 ? h(React.Fragment, null,
+            h('button', { type: 'button', className: 'db-studio-button', disabled: pageIndex <= 0, onClick: () => { setPageIndex(Math.max(0, pageIndex - 1)); setSelectedId(null); } }, '上一页'),
+            h('span', null, `${pageIndex + 1} / ${state.preview.pages.length} · ${page.title}`),
+            h('button', { type: 'button', className: 'db-studio-button', disabled: pageIndex >= state.preview.pages.length - 1, onClick: () => { setPageIndex(Math.min(state.preview.pages.length - 1, pageIndex + 1)); setSelectedId(null); } }, '下一页')) : h('span', null, `${page.title} · ${page.viewport.widthDp} × ${page.viewport.heightDp} dp`),
+        ));
+        children.push(h('div', { className: 'db-preview-layout', key: 'preview-layout' },
+          h('div', { className: 'db-preview-viewport', 'data-designbridge-studio': 'canvas' },
+            h('div', { className: 'db-preview-page', style: { width: `${page.viewport.widthDp}px`, minHeight: `${page.viewport.heightDp}px` }, 'data-page-id': page.id },
+              h('div', { className: 'db-preview-page-title' }, `${page.title} · ${page.id}`),
+              renderPreviewNode(page.root, selectedId, id => setSelectedId(id), null))),
+          h('section', { className: 'db-preview-selection', 'data-designbridge-studio': 'selection' },
+            h('h3', null, '组件属性'),
+            selectedNode ? h('dl', null,
+              h('dt', null, 'ID'), h('dd', null, selectedNode.id),
+              h('dt', null, '类型'), h('dd', null, selectedNode.type),
+              h('dt', null, '属性'), h('dd', null, h('pre', null, JSON.stringify(selectedNode.props, null, 2))),
+              h('dt', null, '布局'), h('dd', null, h('pre', null, JSON.stringify(selectedNode.layout ?? { mode: 'flow (default)' }, null, 2))))
+              : h('p', null, '点击画布中的组件查看属性。'))));
         children.push(contractCard(state.contract, t));
         children.push(sourceCard(state.source, state.readAt, t));
+        if (state.previewSource) children.push(sourceCard(state.previewSource, state.readAt, t, 'preview-source', 'panel.previewSourceHeading'));
       }
 
       return h(
         'div',
         { className: 'db-studio-root', 'data-designbridge-studio': 'panel', 'data-db-phase': state.phase },
+        // 自动打开的诊断（成功/重试原因）。没有它就只能靠猜"面板为什么没出现"。
+        autoOpenDiag
+          ? h('div', {
+              className: 'db-studio-note',
+              key: 'autoopen-diag',
+              'data-designbridge-studio': 'autoopen-diag',
+            }, `${translate('panel.autoOpenLabel')}: ${autoOpenDiag}`)
+          : null,
         children,
       );
     }
@@ -676,7 +932,9 @@ window.__ModuleLoader__.load({
       // 官方参考实现（dsh-client-ui-sidebar-documentpreview）原文即为：
       //   inject = ["slots", "locale", "sidebarRightTabs", "remote",
       //             "remote.workspaceFiles", "configForms", "resources"]
-      inject: ['slots', 'sidebarRightTabs', 'locale', 'remote', 'remote.workspaceFiles'],
+      // `sidebarRight` 是导航控制器（`openTab` / `mounted` 都在它上面），
+      // 官方声明示例：inject = ["slots","locale","sidebarRight","sidebarRightTabs"]
+      inject: ['slots', 'sidebarRightTabs', 'sidebarRight', 'locale', 'remote', 'remote.workspaceFiles'],
       apply(ctx) {
         if (ctx.locale !== undefined) {
           ctx.effect(() => ctx.locale.register(NAMESPACE, COPY), 'designbridge-studio.copy');
@@ -729,6 +987,64 @@ window.__ModuleLoader__.load({
             ),
           'designbridge-studio.pane',
         );
+
+        // 3) 自动打开面板（见 AUTO_OPEN_TAB 的说明）。
+        //
+        // 逐个官方事实：
+        //  - `ctx.sidebarRight.mounted` 是 createSnapshotStore(void 0)，有 getSnapshot / subscribe；
+        //    sidebar-right 自己也是用 `source.subscribe(sync); sync(); return () => un()` 这个惯用法。
+        //  - `ctx.sidebarRight.openTab(kind)` 内部的 require() 在两个条件之一不满足时抛
+        //      "sidebarRight: no session surface is mounted"
+        //    ① mounted 还没有会话在屏；② 该会话的 store 还没被 mint。
+        //    而 mounted 的变化发生在**渲染出该会话席位之前**，所以首次尝试常常正落在 ②。
+        //    ⇒ 失败时**不记录已打开**，稍后按有限次数重试。
+        //  - openTab 成功后「面板展开，因为用户看不到的内容不算打开」（官方原文），
+        //    因此这一步同时解决了"右栏收起时什么都看不见"。
+        ctx.effect(() => {
+          const service = ctx.sidebarRight;
+          if (service === undefined || service.mounted === undefined) return () => {};
+
+          const opened = new Set();
+          const attempts = new Map();
+          let timer;
+          let disposed = false;
+
+          const attempt = () => {
+            if (disposed) return;
+            const sessionId = service.mounted.getSnapshot();
+            if (sessionId === undefined || opened.has(sessionId)) return;
+            if (!AUTO_OPEN_TAB) return;
+
+            const tried = attempts.get(sessionId) ?? 0;
+            if (tried >= AUTO_OPEN_MAX_ATTEMPTS) return;
+            attempts.set(sessionId, tried + 1);
+
+            try {
+              service.openTab(TAB_KIND);
+              opened.add(sessionId);
+              autoOpenDiag = `opened session=${sessionId}`;
+            } catch (error) {
+              // 绝不让它冒泡——自动打开失败不能影响面板注册。
+              const message = String(error && error.message ? error.message : error);
+              autoOpenDiag = `retry(${tried + 1}/${AUTO_OPEN_MAX_ATTEMPTS}) session=${sessionId}: ${message}`;
+              if (timer === undefined) {
+                timer = setTimeout(() => {
+                  timer = undefined;
+                  attempt();
+                }, AUTO_OPEN_RETRY_MS);
+              }
+            }
+          };
+
+          const unsubscribe = service.mounted.subscribe(attempt);
+          attempt();
+
+          return () => {
+            disposed = true;
+            if (timer !== undefined) clearTimeout(timer);
+            unsubscribe();
+          };
+        }, 'designbridge-studio.autoopen');
       },
     };
   },

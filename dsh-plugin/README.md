@@ -1,11 +1,8 @@
-# DesignBridge Studio · Harness 客户端插件（v0.3a）
+# DesignBridge Studio · Harness 客户端插件（v0.3b）
 
-DeepSeek Harness 右侧栏的 DesignBridge 面板。**本阶段只做最小可行性验证**：
-确认「第三方客户端插件能在 Harness 里注册一个可点击的面板」这条路走得通。
+DeepSeek Harness 右侧栏的只读 DesignBridge 面板。基于真实 contract 与 preview JSON 展示受限组件画布，并提供页面切换及组件属性查看。
 
-面板内容：标题、设计版本 `demo-0.1`、设计 accent 色块、一个可点击的测试按钮。
-
-> **不在本阶段范围**：设计写回、版本管理、MCP 正式挂载、完整设计渲染。
+> 本插件不提供设计写回、事件执行、任意 HTML、外部图片加载或自动刷新。
 
 ---
 
@@ -17,6 +14,8 @@ dsh-plugin/
 ├── cordis.patch.yml               挂载声明（由安装器读取，不手写进 profile）
 ├── index.js                       宿主半边：空 apply()（纯客户端插件的标准形态）
 ├── client.js                      客户端半边：__ModuleLoader__ 工厂 + 面板组件
+├── src/source/                     工作区相对路径与分页读取适配器
+├── src/view/                       Preview 白名单画布与选择属性视图
 ├── src/model/
 │   ├── preview-schema.mjs          Preview Schema v1 结构校验
 │   └── preview-model.mjs           纯解析、限制与 contract 交叉校验
@@ -28,7 +27,7 @@ dsh-plugin/
 └── README.md                      本文件
 ```
 
-四个安装文件与官方模板 `templates/decoration/` 一一对应，只多了 `checks/` 与本文档。
+插件运行入口仍是 classic client 单文件；`src/model` 保留 b-2 canonical parser，`src/source` 与 `src/view` 为 b-3 可复用纯模块。请勿假定 Harness 会自动加载旁置脚本。
 
 ---
 
@@ -40,7 +39,7 @@ Schema v1（`previewSchemaVersion: 1.0.0`）严格接受 frame、text、button�
 
 解析器在 JSON.parse 前限制 UTF-8 输入不超过 512 KiB；每文件最多 32 pages、每页 2,000 nodes、深度 12；最多返回 50 条错误。`truncatedErrors: true` 仅在校验确实发现第 51 条错误（因而丢弃至少一条）时返回；恰好 50 条错误不带此标志。达到 50 条后继续检查直至发现下一条错误或完成校验，确认有额外错误后即停止。未知字段/类型/非法嵌套均拒绝。重复 JSON 键沿用 JSON.parse 后值覆盖行为，不检测、不拒绝；不自制解析器。校验器是纯 JS 模块，不导入 React、文件系统、网络或 DSH 服务。
 
-运行时 API：`parsePreviewText(text, contract)` 返回 `{ ok: true, value }` 或 `{ ok: false, errors, truncatedErrors? }`。缺失、null、数组等非法 props/layout 和异常 children 形状均报告结构化错误，不应抛异常。当前 b-1 UI 的真实 contract 读取路径不变，b-2 模块尚未接入 UI。
+运行时 API：`parsePreviewText(text, contract)` 返回 `{ ok: true, value }` 或 `{ ok: false, errors, truncatedErrors? }`。缺失、null、数组等非法 props/layout 和异常 children 形状均报告结构化错误，不应抛异常。当前单文件 client UI 使用内联 b-2 schema/contract 校验代码；独立 ESM parser 仍是 b-2 canonical 套件。插件 classic loader 没有 sidecar 脚本入口，因此 UI 尚未 import 独立 parser，跨实现差异测试也必须逐步补齐。
 
 ## 构建：**本插件不需要构建**
 
@@ -60,7 +59,7 @@ Schema v1（`previewSchemaVersion: 1.0.0`）严格接受 frame、text、button�
 |---|---|---|
 | React | **宿主自带的 18.3.1** | 通过 `require('react')` 从浏览器模块表取；**不安装、不打包、不重复** |
 | npm 依赖 | **零** | `node_modules` 为空，没有任何 `dependencies` |
-| 构建命令 | **无** | 源码即产物 |
+| 构建命令 | **无** | 单文件 `client.js`，源码即产物 |
 | Cordis | 不需要显式声明 | 宿主注入 `ctx`；`package.json` 无需 `peerDependencies` |
 
 > **若要改用 TypeScript**：需要引入 `tsdown` 与 `@deepseek-ai/cordis ~4.0.4`，
@@ -81,7 +80,7 @@ node tests/preview-schema.test.mjs && node tests/preview-model.test.mjs
 DSH_NODE_MODULES="$DSH_HOME/node_modules" node checks/render-check.mjs
 ```
 
-实测输出（17 项全过）：
+历史 b-1 实测输出（现行回归详见 `checks/render-check.mjs`）：
 
 ```
 React（宿主 createElement）: 18.3.1
@@ -180,6 +179,63 @@ DSH 官方技能 `cordis-plugin-development` 明确：
 | 7 | **面板非 `keepMounted`** | 切 tab 后组件卸载、点击计数归零 | 最小验证可接受；真实面板需按官方指引决定是否 `keepMounted` |
 | 8 | **`immediately: true`** | 承自官方模板；意味着 client bundle 立即加载而非惰性 | 若担心启动开销，可在挂载后改为惰性并实测 |
 | 9 | **未做 i18n 完整性校验** | 已注册 `zh`/`en`，但宿主语言切换的实际表现未测 | 挂载后切换语言复核 |
+
+---
+
+## v0.3b / b-3：视觉预览与「面板为什么看不见」的修复
+
+### 为什么右栏默认看不到 DesignBridge
+
+本插件注册的是**右栏 tab 类型**（`ctx.sidebarRightTabs.register`）+ 面板正文
+（`sidebar.right.pane.tab`）。而 Harness 的默认界面是**会话页**，右栏默认收起，
+**没有任何东西会自动打开这个 tab** —— 于是"装好了却看不见"。
+
+这不是加载失败：启动图条目、bundle、注册全部正常（见下方核验）。
+
+### 修复：按官方模式自动打开
+
+官方 README 明确认可这种自动打开：
+
+> 「**计划审阅的自动打开**通过绑定的 hook 读取 `mounted`」
+
+参考实现 `dsh-client-ui-plan` 的 `PlanReviewOpen`。本插件改用等价的
+**非 React 路径**（`apply` 里直接订阅可观察值，这也是 sidebar-right 自己的惯用法）：
+
+```js
+ctx.effect(() => {
+  const sync = () => { /* mounted.getSnapshot() → openTab(TAB_KIND) */ };
+  const unsubscribe = ctx.sidebarRight.mounted.subscribe(sync);
+  sync();
+  return () => unsubscribe();
+}, 'designbridge-studio.autoopen');
+```
+
+**关键守卫**（来自宿主源码，不是猜的）——`openTab` 内部的 `require()`：
+
+```js
+if (sessionId === undefined || actions === undefined)
+  throw new Error("sidebarRight: no session surface is mounted");
+```
+
+两个条件：① 有会话在屏；② 该会话的 store **已被 mint**。
+而 `mounted` 的变化发生在**渲染出该会话席位之前**，所以首次尝试常落在 ②。
+⇒ 失败时**不记为已打开**，按有限次数（最多 6 次 / 每次 600ms）重试，且**绝不冒泡**。
+
+`openTab` 成功时官方语义是「**面板展开**，因为用户看不到的内容不会算打开」，
+因此这一步同时解决了"右栏收起时什么都看不见"。
+
+开关：`AUTO_OPEN_TAB = false` 可关闭（面板仍可在右栏引导页手动打开）。
+面板底部会显示**自动打开诊断**（`data-designbridge-studio="autoopen-diag"`），
+便于直接读出"是打开了、还是在重试、重试原因是什么"。
+
+### 关于侧车 bundle（负向结论，已记录）
+
+`preview-parser.iife.js` / `src/model/preview-bundle.mjs` / `scripts/build-preview-bundle.mjs`
+三个文件是**刻意的空壳**，记录一条实测结论：
+
+> Harness 的 classic client loader **没有侧车脚本入口**，只执行 `dsh-plugin/client.js`。
+
+因此 b-3 的全部实现都写在 `client.js` 内部，**不引入构建步骤**（零构建不变）。
 
 ---
 
