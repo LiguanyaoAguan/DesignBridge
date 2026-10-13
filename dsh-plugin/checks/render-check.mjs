@@ -603,43 +603,90 @@ await run(async () => {
 });
 
 // 4.7 成功态：必须显示**真实值**与**来源**
+//
+// ⚠️ 这一段**跟随契约**，不写死具体设计：
+//   契约说当前设计是谁，测试就读谁的 preview。
+//   （否则每次交付新设计都会把测试砸掉 —— 这个坑真踩过一次。）
+const REPO_ROOT = join(plugin_root, '..');
+const contractText = readFileSync(join(REPO_ROOT, 'protocol', 'design-contract.json'), 'utf8');
+const checkedInContract = JSON.parse(contractText);
+const previewText = readFileSync(
+  join(REPO_ROOT, 'designs', checkedInContract.designId, 'preview.json'),
+  'utf8',
+);
+const checkedInPreview = JSON.parse(previewText);
+
+/** 收集 preview 里实际出现的组件类型。 */
+function collectTypes(node, into) {
+  if (!node || typeof node !== 'object') return into;
+  if (typeof node.type === 'string') into.add(node.type);
+  for (const child of node.children || []) collectTypes(child, into);
+  return into;
+}
+const usedTypes = [...checkedInPreview.pages.reduce((set, page) => collectTypes(page.root, set), new Set())];
+
 await run(async () => {
-  const contractText = readFileSync(join(plugin_root, '../../../GitHub项目下载/DesignBridge/protocol/design-contract.json'), 'utf8');
-  const previewText = readFileSync(join(plugin_root, '../../../GitHub项目下载/DesignBridge/designs/demo-library/preview.json'), 'utf8');
   read_impl = async (_session, path) => {
     const isContract = path.endsWith('design-contract.json');
     const text = isContract ? contractText : previewText;
-    return textResult(text, { absolutePath: `/workspace-example/${path}`, version: isContract ? 'contract-v1' : 'preview-v1', bytes: Buffer.byteLength(text), lines: text.split('\\n').length });
+    return textResult(text, {
+      absolutePath: `/workspace-example/${path}`,
+      version: isContract ? 'contract-v1' : 'preview-v1',
+      bytes: Buffer.byteLength(text),
+      lines: text.split('\n').length,
+    });
   };
   const { html, phase } = await render_panel(Panel, propsFor('s1'));
   globalThis.__html_ok = html;
+  globalThis.__preview_json = checkedInPreview;
   assert(phase === 'ready', `应进入 ready，实际 ${phase}`);
-  for (const needle of ['demo-library', 'demo-0.1', 'android-compose', 'library', '#ED8B43', 'landscape']) {
-    assert(html.includes(needle), `缺少真实字段值：${needle}`);
-  }
-  return expect('成功态：显示真实 contract 字段', true, 'designId/version/platform/screenId/tokens/regions 均在');
+  const needle = [
+    checkedInContract.designId,
+    checkedInContract.designVersion,
+    checkedInContract.platform,
+    checkedInContract.screenId,
+    checkedInPreview.pages[0].title,
+  ];
+  for (const value of needle) assert(html.includes(value), `缺少真实字段值：${value}`);
+  const tokenValues = Object.values(checkedInContract.designTokens).map(String);
+  assert(tokenValues.some((value) => html.includes(value)), '缺少 designTokens 的真实值');
+  return expect('成功态：显示真实 contract 字段', true, `designId=${checkedInContract.designId} version=${checkedInContract.designVersion}`);
 });
 
 await run(async () => {
   const html = globalThis.__html_ok;
-  const allNine = ['frame','text','button','card','list','list-item','badge','divider','image-placeholder'].every(type => html.includes(`data-node-type=\"${type}\"`));
-  return expect('成功态：真实 preview 九种白名单类型已渲染', html.includes('文件库') && html.includes('最近项目') && html.includes('data-node-id=\"root\"') && allNine, 'demo 内容及全部九种已许可类型显示');
+  const rendered = usedTypes.filter((type) => html.includes(`data-node-type="${type}"`));
+  return expect(
+    '成功态：preview 里出现的组件类型全部已渲染',
+    rendered.length === usedTypes.length && html.includes('data-node-id="root"'),
+    `用到 ${usedTypes.length}/9 类：${usedTypes.join(', ')}`,
+  );
 });
 
 await run(async () => {
-  const first = harness.rerender();
-  const buttonNode = (function find(n) { if (!n) return null; if (n.id === 'nav-button') return n; for (const c of n.children || []) { const r = find(c); if (r) return r; } return null; })(JSON.parse(readFileSync(join(plugin_root, '../../../GitHub项目下载/DesignBridge/designs/demo-library/preview.json'), 'utf8')).pages[0].root);
-  assert(buttonNode, 'demo button node missing');
-  // Pure selection is user-driven; ensure all elements carry click handlers and no business action surface.
-  assert(typeof buttonNode.props.label === 'string', 'button preview should remain inert text');
-  return expect('组件选择 UI 可访问且普通按钮不触发业务动作', globalThis.__html_ok.includes('data-designbridge-studio=\"selection\"') && globalThis.__html_ok.includes('data-node-type=\"button\"'), 'canvas nodes selectable, button is decorative');
+  // 找一个 preview 里真实存在的节点（不写死 id），确认它作为组件被渲染出来
+  const firstId = (function pick(node) {
+    if (!node) return null;
+    if (node.type !== 'frame' && typeof node.id === 'string') return node.id;
+    for (const child of node.children || []) { const hit = pick(child); if (hit) return hit; }
+    return null;
+  })(globalThis.__preview_json.pages[0].root);
+  assert(firstId !== null, 'preview 里找不到非 frame 节点');
+  const html = globalThis.__html_ok;
+  return expect(
+    '组件选择 UI 可访问且普通按钮不触发业务动作',
+    html.includes(`data-node-id="${firstId}"`) &&
+      html.includes('data-designbridge-studio="selection"') &&
+      html.includes('data-node-type="button"'),
+    `canvas nodes selectable（样本节点 ${firstId}），button is decorative`,
+  );
 });
 
 await run(async () => {
   const html = globalThis.__html_ok;
   return expect(
     '成功态：显示数据来源（相对路径/绝对路径/版本/字节/行数/时间）',
-    html.includes('GitHub项目下载/DesignBridge/protocol/design-contract.json') &&
+    html.includes(`GitHub项目下载/DesignBridge/protocol/design-contract.json`) &&
       html.includes('preview-v1') &&
       html.includes('data-designbridge-studio="preview-source"') &&
       html.includes('data-designbridge-studio="source"'),

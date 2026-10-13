@@ -5,13 +5,15 @@ import { parsePreviewText } from '../src/model/preview-model.mjs';
 import { LIMITS } from '../src/model/preview-schema.mjs';
 
 const contract = JSON.parse(readFileSync(new URL('../../protocol/design-contract.json', import.meta.url), 'utf8'));
-const sample = { previewSchemaVersion: '1.0.0', designId: 'demo-library', designVersion: 'demo-0.1', pages: [{ id: 'library', title: 'Library', viewport: { widthDp: 1280, heightDp: 800, orientation: 'landscape' }, root: { id: 'root', type: 'frame', props: { direction: 'row', layoutMode: 'flow' } } }] };
+// ⚠️ 样本**从契约派生**，不写死具体设计：
+//    契约说当前设计是谁，样本就跟着谁。否则每次交付新设计都会把测试砸掉（真踩过）。
+const sample = { previewSchemaVersion: '1.0.0', designId: contract.designId, designVersion: contract.designVersion, pages: [{ id: contract.screenId, title: 'Library', viewport: { widthDp: 1280, heightDp: 800, orientation: contract.layout.orientation }, root: { id: 'root', type: 'frame', props: { direction: 'row', layoutMode: 'flow' } } }] };
 const parse = (value, c = contract) => parsePreviewText(typeof value === 'string' ? value : JSON.stringify(value), c);
 const expectError = (value, code, path, c) => { const r = parse(value, c); assert.equal(r.ok, false); assert.ok(r.errors.some(e => e.code === code && e.path === path), JSON.stringify(r.errors)); };
 
 test('valid model and checked-in demo parse', () => {
   assert.equal(parse(sample).ok, true);
-  const demo = readFileSync(new URL('../../designs/demo-library/preview.json', import.meta.url), 'utf8');
+  const demo = readFileSync(new URL(`../../designs/${contract.designId}/preview.json`, import.meta.url), 'utf8');
   assert.equal(parsePreviewText(demo, contract).ok, true);
 });
 test('invalid JSON and non-string input return stable errors', () => {
@@ -27,7 +29,7 @@ test('UTF-8 byte cap is checked before JSON.parse', () => {
 test('contract identity and version exact match', () => {
   expectError({ ...sample, designId: 'other' }, 'design-id-mismatch', '$.designId');
   expectError({ ...sample, designVersion: 'v1' }, 'design-version-mismatch', '$.designVersion');
-  assert.equal(parse({ ...sample, designVersion: 'demo-0.1' }).ok, true);
+  assert.equal(parse({ ...sample, designVersion: contract.designVersion }).ok, true);
 });
 test('page id and orientation correspond to declared contract fields', () => {
   const withOtherScreen = { ...contract, screenId: 'other' };
@@ -38,7 +40,7 @@ test('page id and orientation correspond to declared contract fields', () => {
   assert.equal(parse(sample, noOptionalFields).ok, true);
 });
 test('duplicate JSON key follows JSON.parse last-value behavior', () => {
-  const text = '{"previewSchemaVersion":"0.0.0","previewSchemaVersion":"1.0.0","designId":"demo-library","designVersion":"demo-0.1","pages":[]}';
+  const text = `{"previewSchemaVersion":"0.0.0","previewSchemaVersion":"1.0.0","designId":"${contract.designId}","designVersion":"${contract.designVersion}","pages":[]}`;
   const result = parsePreviewText(text, contract);
   assert.equal(result.errors.some(e => e.code === 'unsupported-version'), false);
   assert.equal(result.ok, false); assert.ok(result.errors.some(e => e.code === 'limit-exceeded'));
@@ -63,8 +65,8 @@ test('error cap flag means validation stopped at 50; exactly 50 and >50 are cove
 });
 test('malformed but valid JSON structures never throw', () => {
   const malformed = [
-    '{"previewSchemaVersion":"1.0.0","designId":"demo-library","designVersion":"demo-0.1","pages":[null]}',
-    '{"previewSchemaVersion":"1.0.0","designId":"demo-library","designVersion":"demo-0.1","pages":[{"id":"library","title":"x","viewport":[],"root":{"id":"r","type":"frame","props":null,"children":[null,{"id":"x","type":"text","props":{"text":"x"},"layout":[]}]}}]}'
+    `{"previewSchemaVersion":"1.0.0","designId":"${contract.designId}","designVersion":"${contract.designVersion}","pages":[null]}`,
+    `{"previewSchemaVersion":"1.0.0","designId":"${contract.designId}","designVersion":"${contract.designVersion}","pages":[{"id":"${contract.screenId}","title":"x","viewport":[],"root":{"id":"r","type":"frame","props":null,"children":[null,{"id":"x","type":"text","props":{"text":"x"},"layout":[]}]}}]}`
   ];
   for (const json of malformed) {
     assert.doesNotThrow(() => parsePreviewText(json, contract));
