@@ -1048,12 +1048,19 @@ window.__ModuleLoader__.load({
       if (/<\s*(script|foreignObject|iframe|object|embed|audio|video|animate)\b/i.test(text)) return null;
       if (/(?:href|xlink:href|src)\s*=\s*["']?\s*(?:https?:)?\/\//i.test(text)) return null;
       if (/<\s*image\b/i.test(text)) return null;
+      // 事件属性与非片段 href 一律**直接拒绝**（而不是尝试修复）：不可信内容 fail-closed，行为更好审计。
+      if (/\son[a-z]+\s*=/i.test(text)) return null;
+      if (/(?:href|xlink:href)\s*=\s*(?!["']?\s*#)/i.test(text)) return null;
       let out = text;
       out = out.replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
       out = out.replace(/(?:href|xlink:href)\s*=\s*("[^"]*"|'[^']*')/gi, (match, value) => (/^\s*["']?\s*#/.test(value) ? match : ''));
       out = out.replace(/url\(\s*["']?\s*(?:https?|data):[^)]*\)/gi, '');
       // 净化后仍残留 → 拒绝
-      if (/<\s*script|on[a-z]+\s*=|javascript:|https?:\/\//i.test(out)) return null;
+      // 兜底复查前先摘掉 xmlns 声明：它是 SVG 规范**要求**的命名空间声明
+      // （xmlns="http://www.w3.org/2000/svg"），不发起任何网络请求。
+      // 早期版本没排除它，导致**所有合法 SVG 都被误判为不安全**而整体降级（v0.7.1 修复）。
+      const withoutNamespaces = out.replace(/\sxmlns(?::[a-zA-Z]+)?\s*=\s*("[^"]*"|'[^']*')/gi, '');
+      if (/<\s*script|on[a-z]+\s*=|javascript:|https?:\/\//i.test(withoutNamespaces)) return null;
       return out;
     }
 
@@ -1307,6 +1314,8 @@ window.__ModuleLoader__.load({
 
       /** 设计资源：asset id → { ok:true, uri } | { ok:false, kind }。缺失/非法一律显式降级。 */
       const [assetUris, setAssetUris] = React.useState({});
+      /** 资源诊断：只暴露**阶段与原因码**，不含绝对路径等文件系统信息。 */
+      const [assetDiag, setAssetDiag] = React.useState(null);
 
       // 资源加载：清单（assets.json）→ 逐个 readBytes → data: URI。
       // 读不到清单/资源不阻断主流程：图标与图片降级为可见的"缺失资源"占位。
@@ -1320,20 +1329,38 @@ window.__ModuleLoader__.load({
         readWorkspaceText(remote, sessionId, assetsManifestRelative(designId), controller.signal)
           .then(async (read) => {
             if (cancelled) return;
-            if (!read.ok) { setAssetUris({}); return; }
+            if (!read.ok) {
+              setAssetUris({});
+              setAssetDiag({ manifest: read.kind === 'not-found' ? 'missing' : 'read-failed', total: 0, ok: 0, failed: {} });
+              return;
+            }
             let manifest = null;
             try { manifest = JSON.parse(read.text); } catch { manifest = null; }
-            const list = manifest && Array.isArray(manifest.assets) ? manifest.assets : [];
+            if (manifest === null || !Array.isArray(manifest.assets)) {
+              setAssetUris({});
+              setAssetDiag({ manifest: 'parse-failed', total: 0, ok: 0, failed: {} });
+              return;
+            }
+            const list = manifest.assets;
             const next = {};
+            const failed = {};
+            let okCount = 0;
             for (const asset of list) {
               if (cancelled) return;
               if (asset === null || typeof asset !== 'object') continue;
               if (typeof asset.id !== 'string' || typeof asset.path !== 'string') continue;
-              next[asset.id] = await loadDesignAsset(remote, sessionId, designId, asset, controller.signal);
+              const outcome = await loadDesignAsset(remote, sessionId, designId, asset, controller.signal);
+              next[asset.id] = outcome;
+              if (outcome.ok === true) okCount += 1;
+              else failed[outcome.kind] = (failed[outcome.kind] ?? 0) + 1;
             }
-            if (!cancelled) setAssetUris(next);
+            if (cancelled) return;
+            setAssetUris(next);
+            setAssetDiag({ manifest: 'ok', total: Object.keys(next).length, ok: okCount, failed });
           })
-          .catch(() => { if (!cancelled) setAssetUris({}); });
+          .catch(() => {
+            if (!cancelled) { setAssetUris({}); setAssetDiag({ manifest: 'read-failed', total: 0, ok: 0, failed: {} }); }
+          });
         return () => { cancelled = true; controller.abort(); };
       }, [state.phase, state.contract, sessionId, remote]);
 
@@ -1444,6 +1471,13 @@ window.__ModuleLoader__.load({
       // 交付校验状态条：读不到索引时**不渲染**（而不是显示"通过"）
       const validationBar = renderValidationBar(validation, t);
       if (validationBar !== null) children.push(validationBar);
+      // 资源诊断条：有清单或明确失败时出现；只暴露阶段/原因码，不含任何文件系统路径。
+      if (assetDiag !== null && (assetDiag.manifest !== "missing" || assetDiag.total > 0)) {
+        const failedKinds = Object.entries(assetDiag.failed).map(([kind, n]) => `${kind}×${n}`).join("、");
+        children.push(h("div", { className: "db-validation db-validation--assets", key: "asset-diag", "data-designbridge-studio": "assets", "data-db-assets-manifest": assetDiag.manifest },
+          h("strong", null, failedKinds === "" ? "设计资源 ✅" : "设计资源 ⚠️"),
+          h("div", { className: "db-validation-line" }, `清单 ${assetDiag.manifest} · 资源 ${assetDiag.ok}/${assetDiag.total} 加载成功` + (failedKinds === "" ? "" : ` · 失败：${failedKinds}`))));
+      }
 
       if (state.phase === 'loading' || state.phase === 'idle') {
         children.push(
@@ -1466,7 +1500,7 @@ window.__ModuleLoader__.load({
         ));
         children.push(h('div', { className: 'db-preview-layout', key: 'preview-layout' },
           h('div', { className: 'db-preview-viewport', 'data-designbridge-studio': 'canvas' },
-            h('div', { className: 'db-preview-page', style: { width: `${page.viewport.widthDp}px`, minHeight: `${page.viewport.heightDp}px`, ...styleTokens.vars }, 'data-page-id': page.id, 'data-db-tokens-resolved': String(styleTokens.resolved.length), 'data-db-tokens-ignored': String(styleTokens.ignored.length), 'data-db-tokens-gated': String(styleTokens.gated.length) },
+            h('div', { className: 'db-preview-page', style: { width: `${page.viewport.widthDp}px`, minHeight: `${page.viewport.heightDp}px`, ...styleTokens.vars }, 'data-page-id': page.id, 'data-db-tokens-resolved': String(styleTokens.resolved.length), 'data-db-tokens-ignored': String(styleTokens.ignored.length), 'data-db-tokens-gated': String(styleTokens.gated.length), 'data-db-assets-ok': String(assetDiag ? assetDiag.ok : 0), 'data-db-assets-total': String(assetDiag ? assetDiag.total : 0), 'data-db-assets-manifest': assetDiag ? assetDiag.manifest : 'pending' },
               h('div', { className: 'db-preview-page-title' }, `${page.title} · ${page.id}`),
               renderPreviewNode(page.root, selectedId, id => setSelectedId(id), null, assetUris))),
           h('section', { className: 'db-preview-selection', 'data-designbridge-studio': 'selection' },

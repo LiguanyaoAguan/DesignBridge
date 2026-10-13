@@ -51,7 +51,9 @@ const React = host_require('react');
 function make_stateful_hooks() {
   let cells = [];
   let cursor = 0;
-  let captured = null;
+  // v0.7.1：收集**全部** useEffect —— 早期只保留最后一个，
+  // 导致声明在前的 effect（如资源加载）在测试里永远不被驱动。
+  let capturedEffects = [];
 
   const hooks = {
     createElement: React.createElement,
@@ -69,7 +71,7 @@ function make_stateful_hooks() {
       ];
     },
     useEffect(fn) {
-      captured = fn;
+      capturedEffects.push(fn);
     },
     useMemo: (fn) => fn(),
     useRef: (value) => ({ current: value }),
@@ -82,18 +84,19 @@ function make_stateful_hooks() {
     reset() {
       cells = [];
       cursor = 0;
-      captured = null;
+      capturedEffects = [];
     },
     rerender() { return this.render(this.lastComponent, this.lastProps); },
     render(Component, props) {
       cursor = 0;
-      captured = null;
+      capturedEffects = [];
       const tree = Component(props);
       this.lastComponent = Component;
       this.lastProps = props;
-      const effect = captured;
-      captured = null;
-      return { tree, effect };
+      const effects = capturedEffects;
+      capturedEffects = [];
+      // 保留 effect（最后一个）以兼容既有用法；effects 为全部
+      return { tree, effect: effects.length > 0 ? effects[effects.length - 1] : null, effects };
     },
   };
 }
@@ -154,9 +157,10 @@ async function flush(times = 12) {
  */
 async function render_panel(component, props) {
   harness.reset();
-  const first = harness.render(component, props);
-  if (typeof first.effect === 'function') {
-    first.effect(); // 触发读取
+  // v0.7.1：多轮驱动**全部** effect，让链式异步（契约 → 预览 → 资源）都能流转到稳态。
+  for (let pass = 0; pass < 4; pass += 1) {
+    const { effects } = harness.render(component, props);
+    for (const fn of effects) if (typeof fn === 'function') fn();
     await flush();
   }
   const second = harness.render(component, props);
@@ -1086,6 +1090,71 @@ await run(async () => {
   // 渲染器守卫与内联清单必须同源（不得再出现第二份硬编码数组）
   assert(clientSource.includes('if (!PREVIEW_COMPONENT_TYPES.includes(node.type)) return null;'), '渲染器守卫必须复用同一常量');
   return expect('v0.7 同步性：client.js 内联组件清单与协议一致', true, `${inlined.length} 类，单一来源`);
+});
+
+// ── 4.7e v0.7.1：SVG 净化器的双向约束（合法必须通过 / 攻击必须拒绝）────────────
+// 背景：v0.7 的兜底正则把 `xmlns="http://www.w3.org/2000/svg"` 当成外部引用，
+// 导致**所有合法 SVG 都被判为不安全**、图标整体降级。这里把它固化成回归用例。
+
+function sanitizerFromClient() {
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
+  const match = source.match(/function sanitizeSvgText\(text\) \{[\s\S]*?\n    \}/);
+  assert(match !== null, '应能在 client.js 中找到 sanitizeSvgText');
+  return new Function(`return ${match[0]}`)();
+}
+
+await run(async () => {
+  const sanitize = sanitizerFromClient();
+  const real = readFileSync(new URL('../../designs/innerrec-01/assets/icons/nav-all.svg', import.meta.url), 'utf8');
+  assert(real.includes('xmlns="http://www.w3.org/2000/svg"'), '夹具本身应带 xmlns');
+  assert(sanitize(real) !== null, '带 xmlns 的合法 SVG 必须通过（v0.7.1 回归点）');
+  const gradient = readFileSync(new URL('../../designs/innerrec-01/assets/icons/player-frame.svg', import.meta.url), 'utf8');
+  assert(sanitize(gradient) !== null, '含片段引用 url(#g) 的渐变 SVG 必须通过');
+  return expect('v0.7.1 净化器：合法 SVG（含 xmlns / url(#id)）必须通过', true, '2 个真实资源');
+});
+
+await run(async () => {
+  const sanitize = sanitizerFromClient();
+  const attacks = [
+    ['script', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'],
+    ['onload', '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>'],
+    ['onclick', '<svg xmlns="http://www.w3.org/2000/svg"><rect onclick="x()"/></svg>'],
+    ['外部 href', '<svg xmlns="http://www.w3.org/2000/svg"><use href="https://evil/x.svg#a"/></svg>'],
+    ['foreignObject', '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><body/></foreignObject></svg>'],
+    ['javascript:', '<svg xmlns="http://www.w3.org/2000/svg"><a href="javascript:alert(1)">x</a></svg>'],
+    ['data: href', '<svg xmlns="http://www.w3.org/2000/svg"><a href="data:text/html,x">x</a></svg>'],
+    ['image 外部', '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://evil/a.png"/></svg>'],
+    ['iframe', '<svg xmlns="http://www.w3.org/2000/svg"><iframe src="https://evil"/></svg>'],
+  ];
+  const survived = attacks.filter(([, svg]) => sanitize(svg) !== null).map(([name]) => name);
+  assert(survived.length === 0, `未拦截：${survived.join(', ')}`);
+  return expect('v0.7.1 净化器：9 类注入/外链攻击全部 fail-closed 拒绝', true, '0 漏网');
+});
+
+await run(async () => {
+  // 资源加载**成功路径**：清单 + SVG 文本可读 → icon 渲染成 <img src="data:image/svg+xml;base64,…">
+  const real = readFileSync(new URL('../../designs/innerrec-01/assets/icons/nav-all.svg', import.meta.url), 'utf8');
+  const manifest = JSON.stringify({ assetSchemaVersion: '1.0.0', designId: checkedInContract.designId, assets: [
+    { id: 'nav-all', kind: 'svg', path: `designs/${checkedInContract.designId}/assets/icons/nav-all.svg` },
+  ] });
+  const preview = previewWithRootChildren([
+    { id: 'ok-icon', type: 'icon', props: { asset: 'nav-all', size: 24 }, layout: { mode: 'flow' } },
+  ]);
+  const contract = checkedInContract;
+  read_impl = async (_session, path) => {
+    if (path.endsWith('protocol/design-contract.json')) return textResult(JSON.stringify(contract), { absolutePath: `/w/${path}`, version: 'c' });
+    if (path.endsWith('delivery-index.json')) return { ok: false, error: { code: 'workspace-file/not-found', message: 'ENOENT' } };
+    if (path.endsWith('assets.json')) return textResult(manifest, { absolutePath: `/w/${path}`, version: 'a', bytes: manifest.length });
+    if (path.endsWith('nav-all.svg')) return textResult(real, { absolutePath: `/w/${path}`, version: 's', bytes: real.length });
+    return textResult(JSON.stringify(preview), { absolutePath: `/w/${path}`, version: 'p' });
+  };
+  const { html, phase } = await render_panel(Panel, propsFor('s1'));
+  assert(phase === 'ready', `应 ready，实际 ${phase}`);
+  assert(html.includes('src="data:image/svg+xml;base64,'), '图标应渲染为 data: URI 的 <img>');
+  // 只判 DOM 区域（样式表里本来就有 .db-preview-asset-missing 规则）
+  assert(!html.slice(html.indexOf('</style>')).includes('db-preview-asset-missing'), '成功路径不应出现降级占位');
+  assert(!html.includes('缺失资源：nav-all'), '不应出现缺失提示');
+  return expect('v0.7.1 资源成功路径：SVG 经净化后以内联 data URI 渲染', true, '无降级');
 });
 
 // ── 4.75 回归：preview 读取路径必须以「会话工作区根」为基准 ──────────────────

@@ -82,6 +82,14 @@
       "title": "播放区",
       "temporary": true,
       "source": "原稿 .preview 的渐变+圆形播放键（CSS 复刻）"
+    },
+    {
+      "id": "cover",
+      "kind": "image",
+      "path": "designs/innerrec-01/assets/img/cover.png",
+      "title": "详情面板媒体预览（真实位图，验证二进制通路）",
+      "temporary": true,
+      "source": "InnerRec 验收记录 功能截图_v0.6.0/07_控制中心录屏助手快捷方式.png"
     }
   ]
 }

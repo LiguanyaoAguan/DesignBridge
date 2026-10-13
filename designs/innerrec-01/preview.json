@@ -557,9 +557,9 @@
                 "id": "preview",
                 "type": "image",
                 "props": {
-                  "asset": "player-frame",
-                  "fit": "contain",
-                  "alt": "播放区（设计占位）"
+                  "asset": "cover",
+                  "fit": "cover",
+                  "alt": "详情媒体预览（真实位图）"
                 },
                 "layout": {
                   "mode": "flow"
@@ -755,6 +755,257 @@
                 "layout": {
                   "mode": "flow"
                 }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "assets-probe",
+      "title": "资源验证页（开发用）",
+      "viewport": {
+        "widthDp": 760,
+        "heightDp": 520,
+        "orientation": "landscape"
+      },
+      "root": {
+        "id": "probe-root",
+        "type": "frame",
+        "props": {
+          "direction": "column",
+          "layoutMode": "flow",
+          "gap": 12,
+          "padding": 16
+        },
+        "layout": {
+          "mode": "flow"
+        },
+        "children": [
+          {
+            "id": "probe-h",
+            "type": "text",
+            "props": {
+              "text": "资源与组件验证页（开发用，非设计稿内容）",
+              "size": 17,
+              "weight": "semibold",
+              "tone": "primary"
+            },
+            "layout": {
+              "mode": "flow"
+            }
+          },
+          {
+            "id": "probe-sub",
+            "type": "text",
+            "props": {
+              "text": "用于确认 SVG 图标与 PNG 位图在 Studio 中真实加载；验收后可整页移除。",
+              "size": 11,
+              "weight": "normal",
+              "tone": "secondary"
+            },
+            "layout": {
+              "mode": "flow"
+            }
+          },
+          {
+            "id": "probe-body",
+            "type": "frame",
+            "props": {
+              "direction": "row",
+              "layoutMode": "flow",
+              "gap": 16,
+              "padding": 16
+            },
+            "layout": {
+              "mode": "flow"
+            },
+            "children": [
+              {
+                "id": "probe-card-png",
+                "type": "card",
+                "props": {
+                  "title": "PNG 位图（真实文件 59937 B）",
+                  "subtitle": "readBytes → base64 → data:image/png",
+                  "elevation": "sm"
+                },
+                "layout": {
+                  "mode": "flow"
+                },
+                "children": [
+                  {
+                    "id": "probe-png",
+                    "type": "image",
+                    "props": {
+                      "asset": "cover",
+                      "fit": "cover",
+                      "alt": "真实 PNG"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "probe-card-svg",
+                "type": "frame",
+                "props": {
+                  "direction": "column",
+                  "layoutMode": "flow",
+                  "gap": 12,
+                  "padding": 0
+                },
+                "layout": {
+                  "mode": "flow"
+                },
+                "children": [
+                  {
+                    "id": "probe-card-svg-inner",
+                    "type": "card",
+                    "props": {
+                      "title": "SVG 图标（真实文件）",
+                      "subtitle": "净化 → data:image/svg+xml",
+                      "elevation": "sm"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    },
+                    "children": [
+                      {
+                        "id": "probe-icons",
+                        "type": "frame",
+                        "props": {
+                          "direction": "row",
+                          "layoutMode": "flow",
+                          "gap": 12,
+                          "padding": 0
+                        },
+                        "layout": {
+                          "mode": "flow"
+                        },
+                        "children": [
+                          {
+                            "id": "pi-brand",
+                            "type": "icon",
+                            "props": {
+                              "asset": "brand",
+                              "size": 43
+                            },
+                            "layout": {
+                              "mode": "flow"
+                            }
+                          },
+                          {
+                            "id": "pi-all",
+                            "type": "icon",
+                            "props": {
+                              "asset": "nav-all",
+                              "size": 24
+                            },
+                            "layout": {
+                              "mode": "flow"
+                            }
+                          },
+                          {
+                            "id": "pi-video",
+                            "type": "icon",
+                            "props": {
+                              "asset": "nav-video",
+                              "size": 24
+                            },
+                            "layout": {
+                              "mode": "flow"
+                            }
+                          },
+                          {
+                            "id": "pi-audio",
+                            "type": "icon",
+                            "props": {
+                              "asset": "nav-audio",
+                              "size": 24
+                            },
+                            "layout": {
+                              "mode": "flow"
+                            }
+                          },
+                          {
+                            "id": "pi-settings",
+                            "type": "icon",
+                            "props": {
+                              "asset": "nav-settings",
+                              "size": 24
+                            },
+                            "layout": {
+                              "mode": "flow"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "id": "probe-icons2",
+                        "type": "frame",
+                        "props": {
+                          "direction": "row",
+                          "layoutMode": "flow",
+                          "gap": 12,
+                          "padding": 0
+                        },
+                        "layout": {
+                          "mode": "flow"
+                        },
+                        "children": [
+                          {
+                            "id": "pi-s16",
+                            "type": "icon",
+                            "props": {
+                              "asset": "nav-all",
+                              "size": 16
+                            },
+                            "layout": {
+                              "mode": "flow"
+                            }
+                          },
+                          {
+                            "id": "pi-s24",
+                            "type": "icon",
+                            "props": {
+                              "asset": "nav-all",
+                              "size": 24
+                            },
+                            "layout": {
+                              "mode": "flow"
+                            }
+                          },
+                          {
+                            "id": "pi-s48",
+                            "type": "icon",
+                            "props": {
+                              "asset": "nav-all",
+                              "size": 48
+                            },
+                            "layout": {
+                              "mode": "flow"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "id": "probe-size",
+                        "type": "text",
+                        "props": {
+                          "text": "同一图标 16 / 24 / 48 px",
+                          "size": 11,
+                          "weight": "normal",
+                          "tone": "tertiary"
+                        },
+                        "layout": {
+                          "mode": "flow"
+                        }
+                      }
+                    ]
+                  }
+                ]
               }
             ]
           }
