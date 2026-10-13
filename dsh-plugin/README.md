@@ -166,6 +166,132 @@ DSH 官方技能 `cordis-plugin-development` 明确：
 
 ---
 
+## 真机故障修复：`cannot get property "remote.workspaceFiles" without inject`
+
+### 根因
+
+`ctx.remote` 是一个**点号命名空间代理**。`remote.workspaceFiles` **不是** `remote` 上的普通属性，
+而是一个**独立的 cordis 服务**——由 `@deepseek-ai/dsh-api-workspace-files` 的客户端半边
+经 `ctx.remote.$mount(contribution)` 挂载上来：
+
+```js
+// dsh-api-workspace-files/lib/client.js
+const inject = ["remote"];
+async function apply(ctx) {
+  for (const contribution of [...]) disposers.push(await ctx.remote.$mount(contribution));
+}
+```
+
+宿主 cordis 的上下文代理按**点号全名**解析服务
+（`@deepseek-ai/cordis/lib/index.js` 的 `ReflectService.handler.get`）：
+
+```js
+if (Reflect.has(target, prop)) return getTraceable(...)
+throw new Error(`cannot get property "${prop}" without inject`)
+```
+
+因此访问 `ctx.remote.workspaceFiles` 时，解析的是**未声明的 `remote.workspaceFiles`**，
+于是抛出上面那条错误（错误里的属性名正是**点号全名**）。
+
+### 缺的是哪一级
+
+只声明了 `'remote'`（传输/网关服务，`$mount` 在它上面），
+**漏了独立的一级 `'remote.workspaceFiles'`**。
+
+官方参考实现 `dsh-client-ui-sidebar-documentpreview` 原文即为：
+
+```js
+inject = ["slots", "locale", "sidebarRightTabs", "remote",
+          "remote.workspaceFiles", "configForms", "resources"]
+```
+
+### 最小修复
+
+```js
+// 前
+inject: ['slots', 'sidebarRightTabs', 'locale', 'remote']
+// 后
+inject: ['slots', 'sidebarRightTabs', 'locale', 'remote', 'remote.workspaceFiles']
+```
+
+一行，不动 API、不动错误态、不动来源卡片、不动手动刷新、不动零构建方案。
+
+### 为什么原先的测试没抓到（已修）
+
+假 remote 原来是**裸 JS 对象** `{ workspaceFiles: { read } }`——普通对象没有 cordis 那道守卫，
+于是"漏声明点号服务"这类**真实的宿主 DI 错误被假 remote 掩盖了**，真机才暴露。
+
+现在检查脚本改用 **Proxy 复刻 cordis 守卫**，并且守卫的声明列表**取自插件自己的 `inject`**：
+插件没声明就真的会抛。并加了一条**反向对照**（故意只声明 `remote`），
+断言必须抛出与真机逐字一致的错误——保证测试**不是空转**。
+
+```
+✅ 回归：inject 同时声明点号服务 remote.workspaceFiles
+✅ 回归：守卫能复现宿主报错（反向对照，证明测试非空转）
+        — cannot get property "remote.workspaceFiles" without inject
+✅ 回归：按当前声明访问 remote.workspaceFiles 不抛错
+```
+
+---
+
+## v0.3b / b-1：真实 design-contract.json 只读加载
+
+b-1 把面板从"硬编码演示值"升级为"**读取真实设计契约并显示其来源**"。
+
+### 数据通道（已实测）
+
+```js
+ctx.remote.workspaceFiles.read(sessionId, path, { offset, limit }, signal)
+```
+
+- `sessionId` 由 slot 的 `inject` 回调**直接下发**：
+  `ctx.slots.register({ …, inject: (sessionId) => ({ sessionId, remote: ctx.remote }) }, Panel)`
+  ——与官方 `dsh-client-ui-sidebar-documentpreview` 用法一致
+- `path` 的解析基准是**会话工作区根**，不是仓库根，也不是进程 cwd
+- 该服务**只提供读操作，没有任何写方法**（官方文档明示）
+
+### designRoot
+
+```js
+const DESIGN_ROOT = 'GitHub项目下载/DesignBridge';   // 工作区相对路径
+```
+
+**不硬编码 Android 绝对路径**——绝对路径换设备即失效。
+它相对的是**会话工作区根**；设计仓库通常位于工作区下的某个子目录，
+因此部署时**必须按自己的目录结构**调整该常量。
+
+### 六种错误态（一律显式，**绝不用演示值冒充真实数据**）
+
+| kind | 触发 | 面板表现 |
+|---|---|---|
+| `no-session` | slot 未下发 sessionId | 提示在会话内打开 |
+| `bad-path` | designRoot 非法（绝对路径/URL/含 NUL/`..`） | 提示必须是工作区相对路径 |
+| `not-found` | 文件不存在 | 提示核对路径，并显示**宿主原始错误码** |
+| `forbidden` | 无读取权限 | 同上，显示原始错误码 |
+| `parse` | JSON 解析失败 | 显示解析器给出的位置信息 |
+| `schema` | 不符合 design-contract v1 | 显示**路径化**的校验问题（如 `layout.regions: 必须是字符串数组`） |
+
+另有 `not-text` / `too-large` / `read-failed` 兜底。
+
+> **数据可信度原则**：面板上出现的每一个数值，都必须能溯源到一次**成功的真实读取**。
+> 成功态会同时显示**来源卡片**：相对路径、解析后的绝对路径、文件版本、字节数、行数、读取时间。
+
+### 本阶段刻意不做
+
+组件树渲染、编辑、写回、版本管理、审批、自动刷新（`changes()`）。
+刷新为**手动**按钮。b-1 **维持零构建、零 npm 依赖**。
+
+### 检查（33 项全部通过）
+
+```bash
+DSH_NODE_MODULES="<dsh>/node_modules" node checks/render-check.mjs
+```
+
+检查脚本用**有状态 hooks 桩 + 可注入的假 remote** 驱动真实数据路径，
+逐条覆盖 6 种错误态与成功态（不是只做静态检查）。
+
+---
+
 ## 关于 `ctx.slots.inject`（v0.3a 修订）
 
 面板正文贡献到的是 **sidebar-right 声明的子 slot**，不是本插件声明的 slot。官方写法必须包一层：
