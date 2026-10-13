@@ -210,21 +210,46 @@ ctx.effect(() => {
 }, 'designbridge-studio.autoopen');
 ```
 
-**关键守卫**（来自宿主源码，不是猜的）——`openTab` 内部的 `require()`：
+#### 三重保守条件（宁可手动，不可打扰）
+
+**无条件自动打开会打扰用户**，因此只有下列**全部**满足才打开：
+
+| # | 条件 | 依据 |
+|---|---|---|
+| ① | 该会话此前**未处理过** | 内部 `opened` 集合 —— **手动关闭后同一会话不再弹出** |
+| ② | 该会话的右栏**当前没有任何已打开 tab** | `ctx.sidebarRight.openTabs` —— **不抢占用户正在用的文件/浏览器/终端** |
+| ③ | `openTabs` 这一公开 API **可用** | 拿不到就**默认不打开**（**不猜**） |
+
+条件 ②③ 的**实现依据**（官方源码 + 官方 README，非推测）：
+
+```js
+// SidebarTabInventory：openTabs 是一个 createSnapshotStore([])，
+// 元素形如 { sessionId, tabId, kind, contentId }，
+// 由 localStorage 里已保存的布局 + 各已采用 Session 的权威记录合并而来。
+const tabs = ctx.sidebarRight.openTabs.getSnapshot();
+const occupied = tabs.some((tab) => tab.sessionId === sessionId);
+```
+
+> README「`ctx.sidebarRight`」一节原文：**`sidebarRight.openTabs` 发布所有已保存和
+> 已采用 Session 的打开标签元数据，并保持快照引用稳定。**
+> 已声明为公开面，所以可以可靠判断；若该 API 缺失则按条件 ③ 不打开。
+
+**打开时机守卫**（`openTab` 内部 `require()`，来自宿主源码）：
 
 ```js
 if (sessionId === undefined || actions === undefined)
   throw new Error("sidebarRight: no session surface is mounted");
 ```
 
-两个条件：① 有会话在屏；② 该会话的 store **已被 mint**。
-而 `mounted` 的变化发生在**渲染出该会话席位之前**，所以首次尝试常落在 ②。
-⇒ 失败时**不记为已打开**，按有限次数（最多 6 次 / 每次 600ms）重试，且**绝不冒泡**。
+即 ① 有会话在屏 ② 该会话 store **已 mint**。而 `mounted` 的变化发生在
+**渲染出该会话席位之前**，所以首次尝试常落在 ②：
+失败时**不记为已打开**，按有限次数（最多 6 次 / 每次 600ms）重试，且**绝不冒泡**。
 
 `openTab` 成功时官方语义是「**面板展开**，因为用户看不到的内容不会算打开」，
 因此这一步同时解决了"右栏收起时什么都看不见"。
 
-开关：`AUTO_OPEN_TAB = false` 可关闭（面板仍可在右栏引导页手动打开）。
+开关：`AUTO_OPEN_TAB = false` 可彻底关闭（面板仍可在右栏引导页手动打开）。
+面板底部的**自动打开诊断**会写明 `opened` / `skip … 不抢占` / `openTabs API unavailable`。
 面板底部会显示**自动打开诊断**（`data-designbridge-studio="autoopen-diag"`），
 便于直接读出"是打开了、还是在重试、重试原因是什么"。
 

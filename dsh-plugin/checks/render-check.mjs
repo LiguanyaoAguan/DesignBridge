@@ -334,6 +334,11 @@ let auto_open_throw = null;
 const mounted_listeners = new Set();
 let mounted_session;
 
+/** `openTabs` 的假可观察值；元素形如 { sessionId, tabId, kind, contentId }。 */
+let open_tabs = [];
+/** 置 undefined 用于模拟「宿主 API 不可用」，验证保守策略不会瞎猜。 */
+let open_tabs_source = { getSnapshot: () => open_tabs };
+
 const sidebarRight = {
   // createSnapshotStore 形态：getSnapshot / subscribe
   mounted: {
@@ -342,6 +347,9 @@ const sidebarRight = {
       mounted_listeners.add(fn);
       return () => mounted_listeners.delete(fn);
     },
+  },
+  get openTabs() {
+    return open_tabs_source;
   },
   openTab(kind, options) {
     if (auto_open_throw !== null) throw new Error(auto_open_throw);
@@ -666,40 +674,79 @@ await run(async () => {
   );
 });
 
-// ── 4.8 自动打开面板（官方 mounted 模式）────────────────────────────────────
-// 背景：本插件注册的是右栏 tab，Harness 默认界面是会话页，**没有任何东西会自动打开它**，
-// 于是"装好了却看不见"。修复是订阅 ctx.sidebarRight.mounted 自动 openTab。
+// ── 4.8 自动打开面板：**保守策略** ──────────────────────────────────────────
+// 背景：本插件注册的是右栏 tab，Harness 默认界面是会话页，没有任何东西会自动打开它，
+// 于是"装好了却看不见"。但无条件自动打开会打扰用户，因此采用三重保守条件。
 await run(async () => {
   return expect('自动打开：无会话在屏时不调用 openTab', auto_open_calls.length === 0, `调用 ${auto_open_calls.length} 次`);
 });
 
 await run(async () => {
-  set_mounted('session-auto-1');
-  assert(auto_open_calls.length === 1, `应在会话上屏时打开一次，实际 ${auto_open_calls.length}`);
-  const kind = registrations.find((r) => r.kind === 'sidebarRightTabs').definition.kind;
+  // ① API 不可用 → 必须**不猜**，直接不打开（宁可靠手动）
+  open_tabs_source = undefined;
+  set_mounted('session-api-missing');
   return expect(
-    '自动打开：会话上屏时以正确的 kind 打开一次',
-    auto_open_calls[0].kind === kind,
-    `openTab(${auto_open_calls[0].kind})`,
+    '自动打开：openTabs API 不可用时默认不打开（不猜）',
+    auto_open_calls.length === 0,
+    `调用 ${auto_open_calls.length} 次`,
   );
 });
 
 await run(async () => {
-  set_mounted('session-auto-1');
-  set_mounted('session-auto-1');
-  return expect('自动打开：同一会话幂等（不重复打开）', auto_open_calls.length === 1, `仍为 ${auto_open_calls.length} 次`);
+  // ② 右栏为空 → 打开一次，kind 正确
+  open_tabs_source = { getSnapshot: () => open_tabs };
+  open_tabs = [];
+  set_mounted('session-empty');
+  const kind = registrations.find((r) => r.kind === 'sidebarRightTabs').definition.kind;
+  return expect(
+    '自动打开：右栏为空时以正确的 kind 打开一次',
+    auto_open_calls.length === 1 && auto_open_calls[0].kind === kind,
+    `openTab(${auto_open_calls[0] && auto_open_calls[0].kind})`,
+  );
 });
 
 await run(async () => {
-  // 复现 require() 的抛错：store 还没 mint
+  set_mounted('session-empty');
+  set_mounted('session-empty');
+  return expect('自动打开：同一会话幂等（手动关闭后不反复弹出）', auto_open_calls.length === 1, `仍为 ${auto_open_calls.length} 次`);
+});
+
+await run(async () => {
+  // ③ 该会话右栏已有 tab → 不抢占
+  const before = auto_open_calls.length;
+  open_tabs = [{ sessionId: 'session-occupied', tabId: 't1', kind: 'files', contentId: 'c1' }];
+  set_mounted('session-occupied');
+  return expect(
+    '自动打开：该会话右栏已有 tab 时不抢占',
+    auto_open_calls.length === before,
+    `仍为 ${auto_open_calls.length} 次`,
+  );
+});
+
+await run(async () => {
+  // ④ 只有**别的**会话有 tab，本会话为空 → 仍应打开（不误伤）
+  const before = auto_open_calls.length;
+  open_tabs = [{ sessionId: 'session-other', tabId: 't9', kind: 'files', contentId: 'c9' }];
+  set_mounted('session-fresh');
+  return expect(
+    '自动打开：别的会话有 tab 不影响本会话（不误伤）',
+    auto_open_calls.length === before + 1,
+    `由 ${before} → ${auto_open_calls.length} 次`,
+  );
+});
+
+await run(async () => {
+  // ⑤ 复现 require() 抛错：store 还没 mint
   auto_open_throw = 'sidebarRight: no session surface is mounted';
+  open_tabs = [];
   const before = auto_open_calls.length;
   let escaped = null;
   try {
-    set_mounted('session-auto-2');
+    set_mounted('session-retry');
   } catch (error) {
     escaped = error;
   }
+  auto_open_throw = null;
   return expect(
     '自动打开：宿主抛 "no session surface is mounted" 时不冒泡、不记为已打开',
     escaped === null && auto_open_calls.length === before,
@@ -708,14 +755,8 @@ await run(async () => {
 });
 
 await run(async () => {
-  // 等待定时重试；这次放行
-  auto_open_throw = null;
   await new Promise((resolve) => setTimeout(resolve, 900));
-  return expect(
-    '自动打开：定时重试后成功打开',
-    auto_open_calls.length > 1,
-    `共 ${auto_open_calls.length} 次调用`,
-  );
+  return expect('自动打开：定时重试后成功打开', auto_open_calls.length > 1, `共 ${auto_open_calls.length} 次调用`);
 });
 
 // ── 5. 源码级约束（b-1 新增）─────────────────────────────────────────────────

@@ -50,7 +50,7 @@ window.__ModuleLoader__.load({
     const CONTRACT_RELATIVE = 'protocol/design-contract.json';
 
     /**
-     * 是否在会话上屏后**自动打开** DesignBridge 面板。
+     * 是否允许**保守地**自动打开 DesignBridge 面板。
      *
      * 为什么需要它：本插件注册的是**右栏 tab 类型**，而 Harness 的默认界面是会话页；
      * 右栏默认收起、也没有任何东西会自动打开这个 tab —— 于是"装好了却看不见"。
@@ -58,7 +58,12 @@ window.__ModuleLoader__.load({
      *   「计划审阅的自动打开通过绑定的 hook 读取 `mounted`」
      * 参考实现：dsh-client-ui-plan 的 PlanReviewOpen。
      *
-     * 置 false 即可关闭（面板仍可在右栏引导页里手动打开）。
+     * ⚠️ **保守条件（三重）**，全部满足才打开：
+     *   ① 该会话此前未处理过（手动关闭后不再弹出）；
+     *   ② 该会话的右栏**当前没有任何已打开 tab**（不抢占用户正在用的面板）；
+     *   ③ `openTabs` 这一公开 API **可用** —— 拿不到就**默认不打开**（不猜）。
+     *
+     * 置 false 即可彻底关闭（面板仍可在右栏引导页里手动打开）。
      */
     const AUTO_OPEN_TAB = true;
     /** store 尚未 mint 时的重试间隔；`openTab` 此时会抛 "no session surface is mounted"。 */
@@ -1009,11 +1014,45 @@ window.__ModuleLoader__.load({
           let timer;
           let disposed = false;
 
+          /**
+           * 该会话的右栏当前是否**已有**任何已打开 tab。
+           *
+           * 依据：`ctx.sidebarRight.openTabs` 是**官方文档化**的可观察值，
+           * 元素形如 `{ sessionId, tabId, kind, contentId }`
+           * （README「ctx.sidebarRight」一节：openTabs 发布所有已保存和已采用
+           *  Session 的打开标签元数据，并保持快照引用稳定）。
+           *
+           * @returns `true` / `false`；API 不可用时返回 `undefined` —— 调用方**不得猜测**。
+           */
+          const hasAnyTab = (sessionId) => {
+            const source = service.openTabs;
+            if (source === undefined || source === null || typeof source.getSnapshot !== 'function') {
+              return undefined;
+            }
+            const tabs = source.getSnapshot();
+            if (!Array.isArray(tabs)) return undefined;
+            return tabs.some((tab) => tab !== null && typeof tab === 'object' && tab.sessionId === sessionId);
+          };
+
           const attempt = () => {
             if (disposed) return;
             const sessionId = service.mounted.getSnapshot();
             if (sessionId === undefined || opened.has(sessionId)) return;
             if (!AUTO_OPEN_TAB) return;
+
+            // 保守策略：拿不到 openTabs 就不猜，直接不打开（宁可手动，不可打扰）。
+            const occupied = hasAnyTab(sessionId);
+            if (occupied === undefined) {
+              autoOpenDiag = `skip session=${sessionId}: openTabs API unavailable（保守策略：不自动打开）`;
+              opened.add(sessionId);
+              return;
+            }
+            // 该会话右栏已有 tab（用户可能正在用文件/浏览器/终端）→ 不抢占。
+            if (occupied) {
+              autoOpenDiag = `skip session=${sessionId}: right sidebar already has open tab(s)（不抢占）`;
+              opened.add(sessionId);
+              return;
+            }
 
             const tried = attempts.get(sessionId) ?? 0;
             if (tried >= AUTO_OPEN_MAX_ATTEMPTS) return;
@@ -1022,7 +1061,7 @@ window.__ModuleLoader__.load({
             try {
               service.openTab(TAB_KIND);
               opened.add(sessionId);
-              autoOpenDiag = `opened session=${sessionId}`;
+              autoOpenDiag = `opened session=${sessionId}（右栏当时为空，保守打开）`;
             } catch (error) {
               // 绝不让它冒泡——自动打开失败不能影响面板注册。
               const message = String(error && error.message ? error.message : error);
