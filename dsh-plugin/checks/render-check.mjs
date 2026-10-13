@@ -639,6 +639,33 @@ await run(async () => {
   );
 });
 
+// ── 4.75 回归：preview 读取路径必须以「会话工作区根」为基准 ──────────────────
+// 真机踩过的 bug：契约读的是 `${DESIGN_ROOT}/protocol/...`，而 preview 读的是
+// `designs/...`（漏了 DESIGN_ROOT 前缀）→ 去工作区根下找 → workspace-file/not-found。
+await run(async () => {
+  const seen = [];
+  read_impl = async (sessionId, path) => {
+    seen.push(path);
+    if (path.endsWith('protocol/design-contract.json')) {
+      return textResult(JSON.stringify(VALID_CONTRACT));
+    }
+    return { ok: false, error: { code: 'workspace-file/not-found', message: `no entry at "${path}"` } };
+  };
+  await render_panel(Panel, propsFor('s1'));
+
+  const contractReq = seen.find((p) => p.endsWith('protocol/design-contract.json'));
+  const previewReq = seen.find((p) => p.includes('/designs/'));
+
+  assert(contractReq !== undefined, '未请求契约');
+  assert(previewReq !== undefined, '未请求 preview');
+  const prefix = contractReq.slice(0, contractReq.indexOf('protocol/'));
+  return expect(
+    '回归：preview 读取路径与契约同基准（带 DESIGN_ROOT 前缀）',
+    previewReq === `${prefix}designs/demo-library/preview.json`,
+    `preview=${previewReq}`,
+  );
+});
+
 // ── 4.8 自动打开面板（官方 mounted 模式）────────────────────────────────────
 // 背景：本插件注册的是右栏 tab，Harness 默认界面是会话页，**没有任何东西会自动打开它**，
 // 于是"装好了却看不见"。修复是订阅 ctx.sidebarRight.mounted 自动 openTab。

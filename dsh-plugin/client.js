@@ -807,9 +807,11 @@ window.__ModuleLoader__.load({
             });
             return;
           }
+          // ⚠️ 路径基准是**会话工作区根**，不是 designRoot。
+          // 契约读的是 `${DESIGN_ROOT}/${CONTRACT_RELATIVE}`，preview 必须同样带 DESIGN_ROOT 前缀，
+          // 否则会去工作区根下找 `designs/...`，结果是 not-found（真机实测踩过）。
           const previewPath = `${DESIGN_ROOT}/designs/${parsed.contract.designId}/preview.json`;
-          const previewRelativePath = `designs/${parsed.contract.designId}/preview.json`;
-          readWorkspaceText(remote, sessionId, previewRelativePath, controller.signal).then((previewRead) => {
+          readWorkspaceText(remote, sessionId, previewPath, controller.signal).then((previewRead) => {
             if (cancelled) return;
             if (!previewRead.ok) {
               setState({ phase: 'error', error: { ...previewRead, path: previewPath }, contract: parsed.contract, source: read.source });
@@ -824,8 +826,6 @@ window.__ModuleLoader__.load({
             setPageIndex(0);
             setSelectedId(null);
             setState({ phase: 'ready', contract: parsed.contract, preview: previewResult.value, source: read.source, previewSource: previewRead.source, readAt: new Date().toLocaleTimeString() });
-             setPageIndex(0);
-             setSelectedId(null);
           }).catch((error) => {
             if (!cancelled) setState({ phase: 'error', error: { kind: 'read-failed', path: previewPath, detail: String(error?.message ?? error) }, contract: parsed.contract, source: read.source });
           });
