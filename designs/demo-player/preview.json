@@ -1,0 +1,181 @@
+{
+  "previewSchemaVersion": "1.0.0",
+  "designId": "demo-player",
+  "designVersion": "demo-0.1",
+  "pages": [
+    {
+      "id": "player",
+      "title": "播放器",
+      "viewport": {
+        "widthDp": 1280,
+        "heightDp": 800,
+        "orientation": "landscape"
+      },
+      "root": {
+        "id": "root",
+        "type": "frame",
+        "props": {
+          "direction": "row",
+          "layoutMode": "flow",
+          "gap": 12,
+          "padding": 16
+        },
+        "children": [
+          {
+            "id": "sidebar",
+            "type": "card",
+            "props": {
+              "title": "曲库",
+              "subtitle": "我的音乐"
+            },
+            "layout": {
+              "mode": "flow"
+            },
+            "children": [
+              {
+                "id": "sidebar-count",
+                "type": "badge",
+                "props": {
+                  "label": "12 首",
+                  "tone": "success"
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "sidebar-divider",
+                "type": "divider",
+                "props": {},
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "sidebar-note",
+                "type": "text",
+                "props": {
+                  "text": "本地音乐",
+                  "size": 13,
+                  "weight": "normal",
+                  "tone": "secondary"
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              }
+            ]
+          },
+          {
+            "id": "stage",
+            "type": "card",
+            "props": {
+              "title": "播放器",
+              "subtitle": "正在播放"
+            },
+            "layout": {
+              "mode": "flow"
+            },
+            "children": [
+              {
+                "id": "stage-cover",
+                "type": "image-placeholder",
+                "props": {
+                  "label": "专辑封面"
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "stage-track",
+                "type": "text",
+                "props": {
+                  "text": "夜航西飞",
+                  "size": 22,
+                  "weight": "semibold",
+                  "tone": "primary"
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              },
+              {
+                "id": "stage-play",
+                "type": "button",
+                "props": {
+                  "label": "暂停",
+                  "variant": "primary",
+                  "disabled": false
+                },
+                "layout": {
+                  "mode": "flow"
+                }
+              }
+            ]
+          },
+          {
+            "id": "queue",
+            "type": "card",
+            "props": {
+              "title": "播放队列"
+            },
+            "layout": {
+              "mode": "flow"
+            },
+            "children": [
+              {
+                "id": "queue-list",
+                "type": "list",
+                "props": {
+                  "dense": false
+                },
+                "layout": {
+                  "mode": "flow"
+                },
+                "children": [
+                  {
+                    "id": "queue-1",
+                    "type": "list-item",
+                    "props": {
+                      "label": "夜航西飞",
+                      "meta": "陈婧霏",
+                      "trailing": "03:42"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "queue-2",
+                    "type": "list-item",
+                    "props": {
+                      "label": "山丘",
+                      "meta": "李宗盛",
+                      "trailing": "05:18"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "queue-3",
+                    "type": "list-item",
+                    "props": {
+                      "label": "漠河舞厅",
+                      "meta": "柳爽",
+                      "trailing": "04:05"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,12 +1,12 @@
 {
   "schemaVersion": "1.0.0",
-  "designId": "demo-library",
+  "designId": "demo-player",
   "designVersion": "demo-0.1",
   "platform": "android-compose",
-  "screenId": "library",
-  "description": "非生产环境示例，不代表 InnerRec 实际设计参数",
+  "screenId": "player",
+  "description": "v0.4 交付闭环演示：媒体播放器（非生产示例）",
   "designTokens": {
-    "accent": "#ED8B43",
+    "accent": "#4C8DFF",
     "surface": "#FFFFFF",
     "canvas": "#F6F7F8",
     "cardRadiusDp": 16
@@ -14,14 +14,14 @@
   "layout": {
     "orientation": "landscape",
     "regions": [
-      "navigation",
-      "recording-list",
-      "detail-panel"
+      "sidebar",
+      "stage",
+      "queue"
     ]
   },
   "changeScope": {
     "allowed": [
-      "demo-library"
+      "demo-player"
     ],
     "protected": []
   },

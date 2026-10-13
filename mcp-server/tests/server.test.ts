@@ -8,7 +8,8 @@
  */
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +37,44 @@ const server_js = resolve(here, "..", "src", "index.js");
 const package_root = resolve(here, "..", "..");
 const REPO_ROOT = process.env["DESIGNBRIDGE_TEST_ROOT"] ?? resolve(package_root, "..");
 
+/**
+ * 协议真值：仓库内的**三份**事实来源。
+ *
+ * **为什么一律从文件派生、不写死字面量**：`designVersion` / `designId` 这类字段会随每次
+ * 设计交付而变（v0.4 就从 demo-library 翻到 demo-player）。测试写死它们，每交付一次就砸一次。
+ *
+ * **但三处绝不能共用一个来源** —— 每个字段各有所属，混用等于"测试与被测实现共用同一个
+ * 错误假设"，会掩盖协议不一致：
+ *   · `get_manifest.designVersion`、`get_task.manifest_design_version`、
+ *     `submit_result` 入参的 `designVersion`      ← **manifest**（生产代码就是拿 manifest 比的）
+ *   · `get_task.designVersion`                    ← **task**
+ *   · `get_design` 的身份字段 / designTokens      ← **contract**
+ */
+const MANIFEST = JSON.parse(readFileSync(join(REPO_ROOT, "protocol", "manifest.json"), "utf8")) as {
+  schemaVersion: string;
+  designVersion: string;
+  paths: { designContract: string; task: string; result: string; acceptance: string };
+};
+
+/** 契约路径取自 manifest 的**声明**，不另写一份字面量路径。 */
+const CONTRACT = JSON.parse(readFileSync(join(REPO_ROOT, MANIFEST.paths.designContract), "utf8")) as {
+  designId: string;
+  designVersion: string;
+  screenId: string;
+  platform: string;
+  designTokens: Record<string, string | number>;
+  layout: { orientation: string; regions: string[] };
+  changeScope: { allowed: string[]; protected: string[] };
+};
+
+/** 任务路径同样取自 manifest 的声明。 */
+const TASK = JSON.parse(readFileSync(join(REPO_ROOT, MANIFEST.paths.task), "utf8")) as {
+  taskId: string;
+  type: string;
+  status: string;
+  designVersion: string;
+};
+
 const OUTBOX = ".designbridge-outbox";
 
 let workspace = "";
@@ -43,11 +82,32 @@ let client: Client | undefined;
 let transport: StdioClientTransport | undefined;
 let server_stderr = "";
 
+/** 协议目录 / handoff 在测试开始时的「文件名单 + 内容哈希」基线。 */
+let protocol_digest: Record<string, string> = {};
+let handoff_digest: Record<string, string> = {};
+
 function make_workspace(): string {
   const dir = mkdtempSync(join(tmpdir(), "dbsrv-"));
   cpSync(join(REPO_ROOT, "protocol"), join(dir, "protocol"), { recursive: true });
   cpSync(join(REPO_ROOT, "handoff"), join(dir, "handoff"), { recursive: true });
   return dir;
+}
+
+/**
+ * 目录指纹：文件名 → 内容 sha256（子目录记 "<dir>"）。
+ *
+ * 比"只比文件名"更严：拒绝路径若被绕过、把**已有**协议文件改写了，名字集合一个都不会变，
+ * 只有内容哈希能暴露它。键集合同时覆盖"多出 / 少掉文件"的检测。
+ */
+function dir_digest(dir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const name of readdirSync(dir).sort()) {
+    const full = join(dir, name);
+    out[name] = statSync(full).isFile()
+      ? createHash("sha256").update(readFileSync(full)).digest("hex")
+      : "<dir>";
+  }
+  return out;
 }
 
 interface JsonContent {
@@ -87,6 +147,12 @@ async function call(name: string, args: Record<string, unknown> = {}): Promise<{
 
 before(async () => {
   workspace = make_workspace();
+  // 记下初始「名单 + 内容哈希」基线：全部拒绝用例跑完后必须与它完全一致。
+  // 用基线而不是写死名单 —— protocol/ 会随版本合法新增文档（v0.4 就新增了
+  // design-delivery-spec.md），写死名单会把合法新增误判成污染；
+  // 而"与初始基线完全一致"仍是强断言，任何真实落盘的写入都会立刻失败。
+  protocol_digest = dir_digest(join(workspace, "protocol"));
+  handoff_digest = dir_digest(join(workspace, "handoff"));
 
   transport = new StdioClientTransport({
     command: node_bin(),
@@ -165,7 +231,8 @@ describe("get_manifest", () => {
     assert.equal(payload["project"], "DesignBridge");
     assert.equal(payload["schemaVersion"], "1.0.0");
     assert.equal(payload["protocolVersion"], "0.1.0");
-    assert.equal(payload["designVersion"], "demo-0.1");
+    // 真值来源 = protocol/manifest.json（get_manifest 返回的就是这份 manifest）
+    assert.equal(payload["designVersion"], MANIFEST.designVersion);
     const paths = payload["paths"] as Record<string, string>;
     assert.equal(paths["designContract"], "protocol/design-contract.json");
     assert.equal(paths["task"], "handoff/task.json");
@@ -223,25 +290,30 @@ describe("get_manifest", () => {
 // ------------------------------------------------------------------ 5
 
 describe("get_design", () => {
-  it("返回 demo-library 设计契约", async () => {
+  it("返回当前设计契约的身份字段", async () => {
     const { payload, isError } = await call("get_design");
     assert.equal(isError, false);
-    assert.equal(payload["designId"], "demo-library");
-    assert.equal(payload["designVersion"], "demo-0.1");
-    assert.equal(payload["screenId"], "library");
-    assert.equal(payload["platform"], "android-compose");
+    assert.equal(payload["designId"], CONTRACT.designId);
+    assert.equal(payload["designVersion"], CONTRACT.designVersion);
+    assert.equal(payload["screenId"], CONTRACT.screenId);
+    assert.equal(payload["platform"], CONTRACT.platform);
+    // 协议不变量（生产代码据此抛 VERSION_MISMATCH）：契约与 manifest 必须声明同一版本。
+    // 这里核对的是**两份文件本身**，不依赖被测实现的判断。
+    assert.equal(CONTRACT.designVersion, MANIFEST.designVersion, "协议真值不一致：契约与 manifest 的 designVersion 必须相同");
   });
 
   it("包含设计 Token、布局与修改范围", async () => {
     const { payload } = await call("get_design");
+    // 逐项与契约对齐：比原先"只挑 accent/cardRadiusDp 两个 token"更严，
+    // 且不随设计更换而失效（原先写死 #ED8B43，换设计即失败）。
     const tokens = payload["designTokens"] as Record<string, unknown>;
-    assert.equal(tokens["accent"], "#ED8B43");
-    assert.equal(tokens["cardRadiusDp"], 16);
+    assert.deepEqual(tokens, CONTRACT.designTokens);
     const layout = payload["layout"] as { orientation: string; regions: string[] };
-    assert.equal(layout.orientation, "landscape");
-    assert.deepEqual(layout.regions, ["navigation", "recording-list", "detail-panel"]);
+    assert.equal(layout.orientation, CONTRACT.layout.orientation);
+    assert.deepEqual(layout.regions, CONTRACT.layout.regions);
     const scope = payload["changeScope"] as { allowed: string[]; protected: string[] };
-    assert.deepEqual(scope.allowed, ["demo-library"]);
+    assert.deepEqual(scope.allowed, CONTRACT.changeScope.allowed);
+    assert.deepEqual(scope.protected, CONTRACT.changeScope.protected);
   });
 
   it("design-contract 的 designVersion 与 manifest 不一致时返回 VERSION_MISMATCH", async () => {
@@ -288,7 +360,8 @@ describe("get_task", () => {
     assert.equal(payload["taskId"], "bootstrap-connectivity-001");
     assert.equal(payload["type"], "connectivity-check");
     assert.equal(payload["status"], "ready");
-    assert.equal(payload["designVersion"], "demo-0.1");
+    // 真值来源 = handoff/task.json（get_task 返回的就是这份 task）
+    assert.equal(payload["designVersion"], TASK.designVersion);
   });
 
   it("返回执行约束", async () => {
@@ -301,7 +374,11 @@ describe("get_task", () => {
   it("校验并报告 task 与 manifest 的 designVersion 一致性", async () => {
     const { payload } = await call("get_task");
     assert.equal(payload["design_version_matches_manifest"], true);
-    assert.equal(payload["manifest_design_version"], "demo-0.1");
+    // manifest_design_version 的真值来源 = protocol/manifest.json
+    assert.equal(payload["manifest_design_version"], MANIFEST.designVersion);
+    // 再独立核一次**文件本身**是否一致：只信 payload.design_version_matches_manifest
+    // 等于拿被测实现的结论当证据（测试与被测实现共用假设）。
+    assert.equal(TASK.designVersion, MANIFEST.designVersion, "协议真值不一致：task 与 manifest 的 designVersion 必须相同");
   });
 
   it("版本不一致时拒绝返回", async () => {
@@ -333,7 +410,9 @@ describe("get_task", () => {
 
 const valid_submission = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   taskId: "bootstrap-connectivity-001",
-  designVersion: "demo-0.1",
+  // 真值来源 = protocol/manifest.json：生产代码就是拿 manifest.designVersion 比对入参。
+  // 写死字面量会让"合法提交"在换了设计版本后变成"非法提交"，测试反过来诬告实现。
+  designVersion: MANIFEST.designVersion,
   schemaVersion: "1.0.0",
   status: "success",
   executor: "designbridge-test-client",
@@ -488,16 +567,28 @@ it("工具层自带校验：SDK 之后的跨字段一致性由 handler 把关", 
   }
 
   it("所有拒绝尝试都没有污染协议目录", async () => {
-    // 强断言：跑完上面全部拒绝用例后，协议目录内容必须与初始一致。
+    // 强断言：跑完上面全部拒绝用例后，目录的「文件名单 + 内容哈希」必须与初始基线完全一致。
+    // 基线 = make_workspace 从仓库复制来的内容，因此天然包含随版本合法新增的文档
+    // （v0.4 起为 design-delivery-spec.md），不需要在测试里维护一份"完整"文件名清单。
+    //
+    // 两级都比：
+    //   · 键集合（文件名）  —— 多出文件（污染写入）／少文件／改名 → 失败
+    //   · 键值  （内容哈希）—— **改写已有文件内容**（文件名一个都不变）→ 失败
+    //
+    // 先确认基线有效（防止目录为空 / 复制失败导致的假通过），
+    // 并显式覆盖 v0.4 起合法新增的 design-delivery-spec.md。
+    for (const required of ["acceptance-rules.md", "design-contract.json", "design-delivery-spec.md", "manifest.json"]) {
+      assert.ok(required in protocol_digest, `初始基线应包含协议文件：${required}`);
+    }
     assert.deepEqual(
-      readdirSync(join(workspace, "protocol")).sort(),
-      ["acceptance-rules.md", "design-contract.json", "manifest.json"],
-      "protocol/ 不应多出任何结果文件",
+      dir_digest(join(workspace, "protocol")),
+      protocol_digest,
+      "protocol/ 不应有任何新增、删除或内容改动",
     );
     assert.deepEqual(
-      readdirSync(join(workspace, "handoff")).sort(),
-      ["result.json", "task.json"],
-      "handoff/ 不应多出任何结果文件",
+      dir_digest(join(workspace, "handoff")),
+      handoff_digest,
+      "handoff/ 不应有任何新增、删除或内容改动",
     );
   });
 
@@ -511,5 +602,73 @@ it("工具层自带校验：SDK 之后的跨字段一致性由 handler 把关", 
     const code = await submit_with_outbox("tmp/mcp-outbox");
     assert.equal(code, "OK", "不含 . / .. 的嵌套目录应允许");
     assert.ok(existsSync(join(workspace, "tmp", "mcp-outbox")), "应创建出嵌套目录");
+  });
+});
+
+// ------------------------------------------------------------------ 真值来源可观测性
+
+describe("真值来源可观测性", () => {
+  it("manifest 与 task 的 designVersion 不一致时：get_manifest 仍报 manifest 版本，get_task 报 VERSION_MISMATCH", async () => {
+    // 为什么需要这个用例（P2-1）：
+    // 仓库里 manifest / task / contract 的 designVersion 当前**同值**，于是
+    // "期望值从真值来源派生"的断言无法区分实现究竟读了哪一份 —— 例如 get_manifest
+    // 误读 task.json，断言照样通过（虚假通过）。
+    //
+    // 本用例故意让 **task 与 manifest 分离**，把两个真值来源变成可观测的：
+    //   · get_manifest 必须报 manifest 的值，且**不是**被改过的 task 值
+    //   · get_task 必须拒绝，且错误明细同时点名 task 与 manifest 各自的值
+    //
+    // contract 一侧的可观测性**已由既有用例覆盖**（get_design 的「design-contract 的
+    // designVersion 与 manifest 不一致时返回 VERSION_MISMATCH」断言明细含 contract 的
+    // 版本），故此处不重复添加，符合"避免重复已有覆盖"。
+    //
+    // 隔离性：只写自己 mkdtemp 出来的 `broken` 副本，不碰 `workspace`，
+    // 因此不影响「所有拒绝尝试都没有污染协议目录」等其他用例。
+    const broken = mkdtempSync(join(tmpdir(), "dbsrc-"));
+    cpSync(join(REPO_ROOT, "protocol"), join(broken, "protocol"), { recursive: true });
+    cpSync(join(REPO_ROOT, "handoff"), join(broken, "handoff"), { recursive: true });
+    const task_path = join(broken, "handoff", "task.json");
+    const task = JSON.parse(readFileSync(task_path, "utf8")) as Record<string, unknown>;
+    const task_only_version = "task-only-9.9";
+    task["designVersion"] = task_only_version;
+    writeFileSync(task_path, JSON.stringify(task, null, 2), "utf8");
+
+    const t = new StdioClientTransport({
+      command: node_bin(),
+      args: [server_js],
+      cwd: broken,
+      env: { ...(process.env as Record<string, string>), DESIGNBRIDGE_ROOT: broken, DESIGNBRIDGE_OUTBOX_DIR: OUTBOX },
+    });
+    const c = new Client({ name: "t", version: "1" });
+    await c.connect(t);
+    try {
+      // ① get_manifest 读的是 manifest：报 manifest 的值，而不是 task 的值
+      const manifest_res = (await c.callTool({ name: "get_manifest", arguments: {} })) as JsonContent;
+      // 注意：SDK 成功时 isError 为 undefined（不是 false），故用 !== true 判定。
+      assert.ok(manifest_res.isError !== true, "task 的版本漂移不应影响 get_manifest（它只读 manifest）");
+      const manifest_payload = parse_json(manifest_res);
+      assert.equal(
+        manifest_payload["designVersion"],
+        MANIFEST.designVersion,
+        `get_manifest 应报 manifest 的 designVersion（${MANIFEST.designVersion}），实际 ${String(manifest_payload["designVersion"])}`,
+      );
+      assert.notEqual(
+        manifest_payload["designVersion"],
+        task_only_version,
+        "get_manifest 不得返回 task 的 designVersion —— 否则说明它读错了文件",
+      );
+
+      // ② get_task 必须拒绝，且明细同时点名两个来源各自的值
+      const task_res = (await c.callTool({ name: "get_task", arguments: {} })) as JsonContent;
+      assert.equal(task_res.isError, true, "task 与 manifest 的 designVersion 不一致时 get_task 应报错");
+      const task_payload = parse_json(task_res);
+      assert.equal(task_payload["code"], "VERSION_MISMATCH");
+      const detail = String(task_payload["detail"]);
+      assert.ok(detail.includes(task_only_version), `明细应点名 task 的版本 ${task_only_version}，实际：${detail}`);
+      assert.ok(detail.includes(MANIFEST.designVersion), `明细应点名 manifest 的版本 ${MANIFEST.designVersion}，实际：${detail}`);
+    } finally {
+      await c.close();
+      rmSync(broken, { recursive: true, force: true });
+    }
   });
 });
