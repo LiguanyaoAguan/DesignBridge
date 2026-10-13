@@ -1,0 +1,7 @@
+# 依赖与构建产物不入库（lockfile 入库以锁定版本）
+node_modules/
+dist/
+*.tsbuildinfo
+
+# MCP Server 的隔离输出目录：submit_result 默认写这里
+.designbridge-outbox/
