@@ -1,0 +1,77 @@
+{
+  "previewSchemaVersion": "1.0.0",
+  "designId": "chatgpt-smoke-01",
+  "designVersion": "smoke-0.1",
+  "pages": [
+    {
+      "id": "handoff",
+      "title": "ChatGPT 联动交付验证",
+      "viewport": {
+        "widthDp": 760,
+        "heightDp": 520,
+        "orientation": "landscape"
+      },
+      "root": {
+        "id": "root",
+        "type": "frame",
+        "props": {
+          "direction": "column",
+          "layoutMode": "flow",
+          "gap": 18,
+          "padding": 28
+        },
+        "children": [
+          {
+            "id": "title",
+            "type": "text",
+            "props": {
+              "text": "ChatGPT → Harness 联动成功",
+              "size": 28,
+              "weight": "bold",
+              "tone": "primary"
+            },
+            "layout": {
+              "mode": "flow"
+            }
+          },
+          {
+            "id": "subtitle",
+            "type": "text",
+            "props": {
+              "text": "这是独立测试设计，不修改 InnerRec 正式页面。",
+              "size": 15,
+              "weight": "normal",
+              "tone": "secondary"
+            },
+            "layout": {
+              "mode": "flow"
+            }
+          },
+          {
+            "id": "status",
+            "type": "badge",
+            "props": {
+              "label": "设计文件已交付",
+              "tone": "success"
+            },
+            "layout": {
+              "mode": "flow"
+            }
+          },
+          {
+            "id": "testbutton",
+            "type": "button",
+            "props": {
+              "label": "静态按钮 · 暂无点击行为",
+              "variant": "primary",
+              "disabled": false
+            },
+            "layout": {
+              "mode": "flow"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

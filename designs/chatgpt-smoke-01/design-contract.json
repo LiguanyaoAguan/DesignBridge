@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0.0",
+  "designId": "chatgpt-smoke-01",
+  "designVersion": "smoke-0.1",
+  "platform": "android-compose",
+  "screenId": "handoff",
+  "description": "独立联动测试，验证 ChatGPT 设计文件经 Harness 校验、提交及预览；不代表 Android 已实施。",
+  "designTokens": {
+    "color.background": "#F6F7F8",
+    "color.accent": "#E98B4C",
+    "color.textPrimary": "#292E36"
+  },
+  "layout": {
+    "orientation": "landscape",
+    "regions": [
+      "main"
+    ]
+  },
+  "changeScope": {
+    "allowed": [
+      "designs/chatgpt-smoke-01/preview.json",
+      "designs/chatgpt-smoke-01/design-contract.json"
+    ],
+    "protected": [
+      "protocol/",
+      "designs/innerrec-01/",
+      "dsh-plugin/",
+      "mcp-server/",
+      "scripts/"
+    ]
+  },
+  "referenceAssets": []
+}
