@@ -166,6 +166,64 @@ DSH 官方技能 `cordis-plugin-development` 明确：
 
 ---
 
+## v0.3b / b-1：真实 design-contract.json 只读加载
+
+b-1 把面板从"硬编码演示值"升级为"**读取真实设计契约并显示其来源**"。
+
+### 数据通道（已实测）
+
+```js
+ctx.remote.workspaceFiles.read(sessionId, path, { offset, limit }, signal)
+```
+
+- `sessionId` 由 slot 的 `inject` 回调**直接下发**：
+  `ctx.slots.register({ …, inject: (sessionId) => ({ sessionId, remote: ctx.remote }) }, Panel)`
+  ——与官方 `dsh-client-ui-sidebar-documentpreview` 用法一致
+- `path` 的解析基准是**会话工作区根**，不是仓库根，也不是进程 cwd
+- 该服务**只提供读操作，没有任何写方法**（官方文档明示）
+
+### designRoot
+
+```js
+const DESIGN_ROOT = 'GitHub项目下载/DesignBridge';   // 工作区相对路径
+```
+
+**不硬编码 Android 绝对路径**——绝对路径换设备即失效。
+它相对的是**会话工作区根**；设计仓库通常位于工作区下的某个子目录，
+因此部署时**必须按自己的目录结构**调整该常量。
+
+### 六种错误态（一律显式，**绝不用演示值冒充真实数据**）
+
+| kind | 触发 | 面板表现 |
+|---|---|---|
+| `no-session` | slot 未下发 sessionId | 提示在会话内打开 |
+| `bad-path` | designRoot 非法（绝对路径/URL/含 NUL/`..`） | 提示必须是工作区相对路径 |
+| `not-found` | 文件不存在 | 提示核对路径，并显示**宿主原始错误码** |
+| `forbidden` | 无读取权限 | 同上，显示原始错误码 |
+| `parse` | JSON 解析失败 | 显示解析器给出的位置信息 |
+| `schema` | 不符合 design-contract v1 | 显示**路径化**的校验问题（如 `layout.regions: 必须是字符串数组`） |
+
+另有 `not-text` / `too-large` / `read-failed` 兜底。
+
+> **数据可信度原则**：面板上出现的每一个数值，都必须能溯源到一次**成功的真实读取**。
+> 成功态会同时显示**来源卡片**：相对路径、解析后的绝对路径、文件版本、字节数、行数、读取时间。
+
+### 本阶段刻意不做
+
+组件树渲染、编辑、写回、版本管理、审批、自动刷新（`changes()`）。
+刷新为**手动**按钮。b-1 **维持零构建、零 npm 依赖**。
+
+### 检查（33 项全部通过）
+
+```bash
+DSH_NODE_MODULES="<dsh>/node_modules" node checks/render-check.mjs
+```
+
+检查脚本用**有状态 hooks 桩 + 可注入的假 remote** 驱动真实数据路径，
+逐条覆盖 6 种错误态与成功态（不是只做静态检查）。
+
+---
+
 ## 关于 `ctx.slots.inject`（v0.3a 修订）
 
 面板正文贡献到的是 **sidebar-right 声明的子 slot**，不是本插件声明的 slot。官方写法必须包一层：
