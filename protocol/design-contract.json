@@ -28,7 +28,10 @@
     "layout.detailPanelPx": 430,
     "layout.tabletBreakpointPx": 790,
     "source.appVersionName": "0.6.4",
-    "source.appVersionCode": 11
+    "source.appVersionCode": 11,
+    "color.onAccent": "#FFFFFF",
+    "color.success": "#568567",
+    "color.successSoft": "#EDF6EF"
   },
   "layout": {
     "orientation": "landscape",
