@@ -1,0 +1,8 @@
+# DesignBridge Studio 的插件挂载声明。
+#
+# 本文件由 bundle 安装器（plugin_manager / install_bundle）读取，
+# **不直接写入正式 profile 的 cordis.patch.yml**。
+# 安装后该行会出现在 profile 的组合结果里；卸载即移除。
+- insert:
+    - id: designbridge-studio
+      name: 'designbridge-studio-plugin'
