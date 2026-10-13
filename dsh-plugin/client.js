@@ -50,6 +50,24 @@ window.__ModuleLoader__.load({
     const CONTRACT_RELATIVE = 'protocol/design-contract.json';
 
     /**
+     * 交付校验索引：**相对于会话工作区根**的路径。
+     *
+     * ⚠️ 与 `DESIGN_ROOT` **同一基准**（工作区根），因此**不带** DESIGN_ROOT 前缀 ——
+     * 与 preview 的路径规则不同，别照抄。
+     *
+     * 该文件由 `scripts/delivery-sync.mjs` 写入"运行时目录"。运行时目录刻意放在
+     * **仓库之外**（避免污染 Git 工作区），但仍在**工作区之内** —— 面板因此能用
+     * 现有的 `remote.workspaceFiles.read` 通道直接读到它，**零新增管道、零新增依赖**。
+     *
+     * ⚠️ 部署时须与 `DESIGN_ROOT` 一起按自己的目录结构调整。若把运行时目录移出工作区，
+     * 本面板将读不到索引（表现为"尚未同步"错误态，而不会显示假数据）。
+     */
+    const INDEX_RELATIVE = 'GitHub项目下载/.designbridge-runtime/state/delivery-index.json';
+
+    /** 校验失败时最多在面板上列出多少条路径化错误。 */
+    const INDEX_MAX_ERRORS = 5;
+
+    /**
      * 是否允许**保守地**自动打开 DesignBridge 面板。
      *
      * 为什么需要它：本插件注册的是**右栏 tab 类型**，而 Harness 的默认界面是会话页；
@@ -125,6 +143,18 @@ window.__ModuleLoader__.load({
         'panel.errCode': '宿主错误码',
         'panel.errDetail': '详情',
         'panel.retry': '重试',
+        'panel.validationHeading': '交付校验',
+        'panel.validationOk': '校验通过',
+        'panel.validationFail': '校验失败',
+        'panel.validationVersion': '设计版本',
+        'panel.validationCommit': '来源 commit',
+        'panel.validationErrors': '错误数',
+        'panel.validationNone': '该设计在交付索引中还没有记录。',
+        'panel.validationMissing': '尚未同步：读不到交付索引。请先运行 scripts/delivery-sync.mjs。',
+        'panel.validationParse': '交付索引 JSON 解析失败。',
+        'panel.validationMismatch': '交付索引中没有当前 designId 的记录。',
+        'panel.validationErrorsHeading': '校验错误（前 {n} 条）',
+        'panel.validationPreserved': '上一个有效交付仍保留（commit {commit}）',
         'err.no-session': '当前没有会话上下文，无法定位工作区。请在某个会话内打开本面板。',
         'err.bad-path':
           '路径非法。designRoot 必须是**工作区相对路径**（不能是绝对路径、URL，也不能含 NUL）。',
@@ -184,6 +214,18 @@ window.__ModuleLoader__.load({
         'panel.errCode': 'Host error code',
         'panel.errDetail': 'Detail',
         'panel.retry': 'Retry',
+        'panel.validationHeading': 'Delivery validation',
+        'panel.validationOk': 'Validation passed',
+        'panel.validationFail': 'Validation failed',
+        'panel.validationVersion': 'Design version',
+        'panel.validationCommit': 'Source commit',
+        'panel.validationErrors': 'Errors',
+        'panel.validationNone': 'No record for this design in the delivery index yet.',
+        'panel.validationMissing': 'Not synced: the delivery index is unreadable. Run scripts/delivery-sync.mjs first.',
+        'panel.validationParse': 'Delivery index JSON failed to parse.',
+        'panel.validationMismatch': 'The delivery index has no record for the current designId.',
+        'panel.validationErrorsHeading': 'Validation errors (first {n})',
+        'panel.validationPreserved': 'Previous valid delivery is preserved (commit {commit})',
         'err.no-session': 'No session context; cannot resolve the workspace. Open this panel inside a session.',
         'err.bad-path':
           'Invalid path. designRoot must be a workspace-relative path (not absolute, not a URL, no NUL).',
@@ -307,6 +349,23 @@ window.__ModuleLoader__.load({
   font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere;
   color: var(--dsw-alias-label-secondary);
 }
+.db-validation {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-l1);
+}
+.db-validation[data-tone="ok"] { border-left-color: var(--dsw-alias-state-success-primary); }
+.db-validation[data-tone="error"] { border-left-color: var(--dsw-alias-state-error-primary); }
+.db-validation[data-tone="none"] { border-left-color: var(--dsw-alias-border-l2); }
+.db-validation-head { font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--dsw-alias-label-secondary); }
+.db-validation-status { font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.db-validation[data-tone="ok"] .db-validation-status { color: var(--dsw-alias-state-success-primary); }
+.db-validation[data-tone="error"] .db-validation-status { color: var(--dsw-alias-state-error-primary); }
+.db-validation-errors { margin: 0; padding-left: 18px; font-size: 11px; color: var(--dsw-alias-label-secondary); }
+.db-validation-errors li { overflow-wrap: anywhere; }
 `;
 
     // ── 文案 ────────────────────────────────────────────────────────────────
@@ -776,6 +835,131 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // ── 交付校验索引（P1 · 只读状态条）──────────────────────────────────────
+
+    /**
+     * 把交付索引文本与当前 designId 对上，返回**可直接渲染**的状态对象。
+     *
+     * 这是**纯函数**（无 IO、无 React），因此可脱离宿主单独验证。
+     * 纪律：任何一步拿不到真值就返回**显式错误态**，绝不回落到演示值。
+     *
+     * kind 取值：
+     *   · `missing`  索引读不到（不存在 / 无权限 / 宿主流错误）
+     *   · `parse`    索引不是合法 JSON，或根节点形状不对
+     *   · `empty`    索引里没有任何设计记录
+     *   · `mismatch` 索引里没有当前 designId 的记录
+     *   · `entry`    命中记录（`ok` 表示该次校验是否通过）
+     */
+    function matchDeliveryIndex(indexText, designId) {
+      if (typeof indexText !== 'string' || indexText.length === 0) return { kind: 'missing' };
+      let index;
+      try {
+        index = JSON.parse(indexText);
+      } catch (error) {
+        return { kind: 'parse', detail: String(error && error.message ? error.message : error) };
+      }
+      if (index === null || typeof index !== 'object' || Array.isArray(index)) {
+        return { kind: 'parse', detail: '索引根节点不是对象' };
+      }
+      const updatedAt = typeof index.updatedAt === 'string' ? index.updatedAt : null;
+      const designs = index.designs;
+      if (designs === null || typeof designs !== 'object' || Array.isArray(designs)) return { kind: 'empty', updatedAt };
+      if (Object.keys(designs).length === 0) return { kind: 'empty', updatedAt };
+
+      const record = designs[designId];
+      if (record === null || typeof record !== 'object' || Array.isArray(record)) return { kind: 'mismatch', updatedAt };
+
+      const lastValid = record.lastValid !== null && typeof record.lastValid === 'object' ? record.lastValid : null;
+      const lastAttempt = record.lastAttempt !== null && typeof record.lastAttempt === 'object' ? record.lastAttempt : null;
+
+      // ⚠️ 展示的是**最近一次**同步的结果（lastAttempt），而不是优先显示 lastValid ——
+      // 否则"最近一次失败、历史上有效"会被渲染成陈旧的 ✅，把失败藏起来。
+      const entry = lastAttempt ?? lastValid;
+      if (entry === null) return { kind: 'empty', updatedAt };
+
+      const source = entry.source !== null && typeof entry.source === 'object' ? entry.source : {};
+      const errors = Array.isArray(entry.errors) ? entry.errors.filter((e) => e !== null && typeof e === 'object') : [];
+      const ok = entry.ok === true;
+      // 最近一次失败、且确实存在一条**通过**的旧记录 → 才声称"上一个有效交付未被替换"
+      const preservedValid = !ok && lastAttempt !== null && lastValid !== null && lastValid.ok === true;
+      const validSource = preservedValid && lastValid.source !== null && typeof lastValid.source === 'object' ? lastValid.source : {};
+      return {
+        kind: 'entry',
+        ok,
+        entryIsLastValid: lastAttempt === null,
+        preservedValid,
+        preservedCommit: preservedValid && typeof validSource.commit === 'string' ? validSource.commit : null,
+        designVersion: typeof entry.designVersion === 'string' ? entry.designVersion : null,
+        commit: typeof source.commit === 'string' ? source.commit : null,
+        commitSubject: typeof source.commitSubject === 'string' ? source.commitSubject : null,
+        ref: typeof source.ref === 'string' ? source.ref : null,
+        validatedAt: typeof entry.validatedAt === 'string' ? entry.validatedAt : null,
+        errorCount: typeof entry.errorCount === 'number' ? entry.errorCount : errors.length,
+        errors,
+        summary: entry.summary !== null && typeof entry.summary === 'object' ? entry.summary : null,
+      };
+    }
+
+    /** 把一条校验错误格式化为一行（与 validate-design.mjs 的输出风格一致）。 */
+    function formatIndexError(issue) {
+      const code = typeof issue.code === 'string' ? issue.code : '—';
+      const path = typeof issue.path === 'string' ? issue.path : '—';
+      const message = typeof issue.message === 'string' ? issue.message : '';
+      return `[${code}] ${path}${message ? ` — ${message}` : ''}`;
+    }
+
+    /** 渲染交付校验状态条；无可渲染信息时返回 null（不占位、不编造）。 */
+    function renderValidationBar(validation, t) {
+      if (validation === null || validation === undefined) return null;
+      const base = {
+        className: 'db-validation',
+        'data-designbridge-studio': 'validation',
+        'data-db-validation-kind': validation.kind,
+      };
+      const heading = h('div', { className: 'db-validation-head' }, t('panel.validationHeading'));
+
+      if (validation.kind === 'missing' || validation.kind === 'empty') {
+        return h('div', { ...base, 'data-tone': 'none' }, heading,
+          h('div', { className: 'db-studio-note' }, t('panel.validationMissing')));
+      }
+      if (validation.kind === 'parse') {
+        return h('div', { ...base, 'data-tone': 'error' }, heading,
+          h('div', { className: 'db-studio-note' }, t('panel.validationParse')),
+          h('pre', { className: 'db-studio-pre' }, String(validation.detail ?? '')));
+      }
+      if (validation.kind === 'mismatch') {
+        return h('div', { ...base, 'data-tone': 'none' }, heading,
+          h('div', { className: 'db-studio-note' }, t('panel.validationMismatch')));
+      }
+
+      const ok = validation.ok === true;
+      const tone = ok ? 'ok' : 'error';
+      const shortCommit = typeof validation.commit === 'string' ? validation.commit.slice(0, 12) : '—';
+      const rows = [
+        h('div', { className: 'db-validation-status', 'data-db-validation-ok': ok ? 'true' : 'false' },
+          ok ? `✅ ${t('panel.validationOk')}` : `❌ ${t('panel.validationFail')}`),
+        h('div', { className: 'db-studio-note' },
+          `${t('panel.validationVersion')} ${validation.designVersion ?? '—'} · ${t('panel.validationCommit')} ${shortCommit} · ${t('panel.validationErrors')} ${validation.errorCount}`),
+      ];
+      if (validation.preservedValid) {
+        const keptCommit = typeof validation.preservedCommit === 'string' ? validation.preservedCommit.slice(0, 12) : '—';
+        rows.push(h('div', { className: 'db-studio-note', 'data-designbridge-studio': 'validation-preserved' },
+          t('panel.validationPreserved').replace('{commit}', keptCommit)));
+      }
+      if (!ok && validation.errors.length > 0) {
+        const shown = validation.errors.slice(0, INDEX_MAX_ERRORS);
+        rows.push(h('div', { className: 'db-studio-note' }, t('panel.validationErrorsHeading').replace('{n}', String(shown.length))));
+        rows.push(h('ul', { className: 'db-validation-errors', 'data-designbridge-studio': 'validation-errors' },
+          shown.map((issue, index) => h('li', { key: `idx-err-${index}` }, formatIndexError(issue)))));
+      }
+      return h('div', {
+        ...base,
+        'data-tone': tone,
+        'data-db-validation-errors': String(validation.errorCount),
+        'data-db-validation-commit': shortCommit,
+      }, heading, ...rows);
+    }
+
     function Panel(props) {
       const t = useTranslate();
       const sessionId = props && props.sessionId;
@@ -785,6 +969,8 @@ window.__ModuleLoader__.load({
       const [nonce, setNonce] = React.useState(0);
       const [pageIndex, setPageIndex] = React.useState(0);
       const [selectedId, setSelectedId] = React.useState(null);
+      /** 交付校验索引的匹配结果；null = 尚未读到。 */
+      const [validation, setValidation] = React.useState(null);
 
       React.useEffect(() => {
         const controller = new AbortController();
@@ -796,6 +982,7 @@ window.__ModuleLoader__.load({
         }
 
         setState({ phase: 'loading' });
+        setValidation(null);
         const relativePath = `${DESIGN_ROOT}/${CONTRACT_RELATIVE}`;
 
         readWorkspaceText(remote, sessionId, relativePath, controller.signal).then((read) => {
@@ -812,6 +999,23 @@ window.__ModuleLoader__.load({
             });
             return;
           }
+          // 交付校验索引：**独立**读取 —— 读不到不影响主流程（面板照旧显示设计本身）。
+          // 路径基准同为会话工作区根，但**不带** DESIGN_ROOT 前缀（见 INDEX_RELATIVE 注释）。
+          readWorkspaceText(remote, sessionId, INDEX_RELATIVE, controller.signal)
+            .then((indexRead) => {
+              if (cancelled) return;
+              if (!indexRead.ok) {
+                setValidation({ kind: 'missing', detail: indexRead.kind });
+                return;
+              }
+              setValidation(matchDeliveryIndex(indexRead.text, parsed.contract.designId));
+            })
+            .catch((error) => {
+              if (!cancelled) {
+                setValidation({ kind: 'missing', detail: String(error && error.message ? error.message : error) });
+              }
+            });
+
           // ⚠️ 路径基准是**会话工作区根**，不是 designRoot。
           // 契约读的是 `${DESIGN_ROOT}/${CONTRACT_RELATIVE}`，preview 必须同样带 DESIGN_ROOT 前缀，
           // 否则会去工作区根下找 `designs/...`，结果是 not-found（真机实测踩过）。
@@ -871,6 +1075,10 @@ window.__ModuleLoader__.load({
           h('div', { className: 'db-studio-sub' }, t('panel.subheading')),
         ),
       ];
+
+      // 交付校验状态条：读不到索引时**不渲染**（而不是显示"通过"）
+      const validationBar = renderValidationBar(validation, t);
+      if (validationBar !== null) children.push(validationBar);
 
       if (state.phase === 'loading' || state.phase === 'idle') {
         children.push(

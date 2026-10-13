@@ -694,6 +694,144 @@ await run(async () => {
   );
 });
 
+// ── 4.7b P1：交付校验状态条 ────────────────────────────────────────────────
+// 面板读的是 delivery-sync 写入的**运行时索引**。这里用假 remote 注入不同索引，
+// 验证 5 种状态都**如实**渲染 —— 尤其是：读不到/解析失败/设计不匹配时
+// **绝不能**渲染成"校验通过"（不许用假数据冒充真值）。
+
+/** 构造只按路径分派的假 remote：契约 / preview / 交付索引。index=null 表示索引读不到。 */
+function serveDelivery(index) {
+  return async (_session, path) => {
+    if (path.endsWith('protocol/design-contract.json')) {
+      return textResult(contractText, { absolutePath: `/workspace-example/${path}`, version: 'contract-v1' });
+    }
+    if (path.endsWith('delivery-index.json')) {
+      if (index === null) {
+        return { ok: false, error: { code: 'workspace-file/not-found', message: 'ENOENT: no delivery index' } };
+      }
+      return textResult(index, { absolutePath: `/workspace-example/${path}`, version: 'index-v1' });
+    }
+    return textResult(previewText, { absolutePath: `/workspace-example/${path}`, version: 'preview-v1' });
+  };
+}
+
+/** 索引夹具：显式区分 `lastValid`（仅通过时写入）与 `lastAttempt`（每次同步都写）。 */
+const indexWith = (designId, lastValid, lastAttempt) =>
+  JSON.stringify({
+    indexVersion: '1.0.0',
+    updatedAt: '2026-10-13T15:00:00.000Z',
+    designs: { [designId]: { lastValid, lastAttempt } },
+  });
+
+const OK_COMMIT = 'abcdef0123456789abcdef0123456789abcdef01';
+const FAIL_COMMIT = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+
+await run(async () => {
+  const entry = {
+    designId: checkedInContract.designId,
+    designVersion: checkedInContract.designVersion,
+    ok: true,
+    errorCount: 0,
+    errors: [],
+    validatedAt: '2026-10-13T15:00:00.000Z',
+    source: { commit: OK_COMMIT, commitSubject: 'x', ref: 'origin/main' },
+  };
+  read_impl = serveDelivery(indexWith(checkedInContract.designId, entry, entry));
+  const { html } = await render_panel(Panel, propsFor('s1'));
+  globalThis.__html_index_ok = html;
+  assert(html.includes('data-designbridge-studio="validation"'), '应渲染校验状态条');
+  assert(html.includes('data-db-validation-kind="entry"'), '应为 entry 态');
+  assert(html.includes('data-db-validation-ok="true"'), '应为通过态');
+  assert(html.includes('data-tone="ok"'), '外框应为 ok 色调');
+  assert(html.includes(`data-db-validation-commit="${OK_COMMIT.slice(0, 12)}"`), '应带来源 commit（截断 12 位）');
+  assert(html.includes(checkedInContract.designVersion), '应显示设计版本');
+  return expect('P1 成功态：索引命中且校验通过', true, `designId=${checkedInContract.designId} commit=${OK_COMMIT.slice(0, 12)}`);
+});
+
+await run(async () => {
+  const entry = {
+    designId: checkedInContract.designId,
+    designVersion: checkedInContract.designVersion,
+    ok: false,
+    errorCount: 2,
+    errors: [
+      { code: 'unknown-component-type', path: '$.pages[0].root.children[0].type', message: '未知组件类型' },
+      { code: 'invalid-nesting', path: '$.pages[0].root.children[1].children', message: '叶节点禁止 children' },
+    ],
+    validatedAt: '2026-10-13T15:01:00.000Z',
+    source: { commit: FAIL_COMMIT, ref: 'origin/main' },
+  };
+  read_impl = serveDelivery(indexWith(checkedInContract.designId, null, entry));
+  const { html } = await render_panel(Panel, propsFor('s1'));
+  assert(html.includes('data-db-validation-ok="false"'), '应为失败态');
+  assert(html.includes('data-tone="error"'), '外框应为 error 色调');
+  assert(html.includes('data-db-validation-errors="2"'), '应带错误数量 2');
+  assert(html.includes('data-designbridge-studio="validation-errors"'), '应列出错误清单');
+  assert(html.includes('[unknown-component-type]'), '错误行应含错误码');
+  assert(html.includes('$.pages[0].root.children[0].type'), '错误行应含 JSONPath');
+  return expect('P1 失败态：校验未通过并列出路径化错误', true, '❌ + 2 条路径化错误');
+});
+
+await run(async () => {
+  read_impl = serveDelivery(null); // 索引读不到
+  const { html, phase } = await render_panel(Panel, propsFor('s1'));
+  assert(phase === 'ready', `索引缺失不应影响设计本身渲染，实际 ${phase}`);
+  assert(html.includes('data-db-validation-kind="missing"'), '应为 missing 态');
+  assert(!html.includes('data-db-validation-ok="true"'), '索引缺失**绝不能**渲染成"通过"');
+  return expect('P1 索引缺失：显式提示，不伪装成功', true, 'missing 态且设计照常渲染');
+});
+
+await run(async () => {
+  read_impl = serveDelivery('{ "designs": '); // 坏 JSON
+  const { html, phase } = await render_panel(Panel, propsFor('s1'));
+  assert(phase === 'ready', '索引解析失败不应影响设计本身渲染');
+  assert(html.includes('data-db-validation-kind="parse"'), '应为 parse 态');
+  assert(!html.includes('data-db-validation-ok="true"'), '解析失败**绝不能**渲染成"通过"');
+  return expect('P1 索引解析失败：显式报错，不伪装成功', true, 'parse 态');
+});
+
+await run(async () => {
+  const other = JSON.stringify({
+    indexVersion: '1.0.0',
+    updatedAt: '2026-10-13T15:02:00.000Z',
+    designs: { 'some-other-design': { lastValid: { ok: true }, lastAttempt: { ok: true } } },
+  });
+  read_impl = serveDelivery(other);
+  const { html, phase } = await render_panel(Panel, propsFor('s1'));
+  assert(phase === 'ready', '设计不匹配不应影响设计本身渲染');
+  assert(html.includes('data-db-validation-kind="mismatch"'), '应为 mismatch 态');
+  assert(!html.includes('data-db-validation-ok="true"'), '别的设计的通过记录**绝不能**算到当前设计头上');
+  return expect('P1 设计不匹配：不借用其他设计的校验结果', true, 'mismatch 态');
+});
+
+await run(async () => {
+  const validEntry = {
+    designId: checkedInContract.designId,
+    designVersion: checkedInContract.designVersion,
+    ok: true,
+    errorCount: 0,
+    errors: [],
+    validatedAt: '2026-10-13T15:00:00.000Z',
+    source: { commit: OK_COMMIT, ref: 'origin/main' },
+  };
+  const failedEntry = {
+    designId: checkedInContract.designId,
+    designVersion: 'broken-9.9',
+    ok: false,
+    errorCount: 1,
+    errors: [{ code: 'unknown-component-type', path: '$.pages[0].root.children[0].type', message: '未知组件类型' }],
+    validatedAt: '2026-10-13T15:05:00.000Z',
+    source: { commit: FAIL_COMMIT, ref: 'origin/main' },
+  };
+  read_impl = serveDelivery(indexWith(checkedInContract.designId, validEntry, failedEntry));
+  const { html } = await render_panel(Panel, propsFor('s1'));
+  assert(html.includes('data-db-validation-ok="false"'), '最近一次失败必须显示为失败，不得显示陈旧的通过');
+  assert(html.includes(`data-db-validation-commit="${FAIL_COMMIT.slice(0, 12)}"`), '状态条应反映最近一次（失败）的 commit');
+  assert(html.includes('data-designbridge-studio="validation-preserved"'), '应标注上一个有效交付仍保留');
+  assert(html.includes(OK_COMMIT.slice(0, 12)), '保留标注应指明上一个有效交付的 commit');
+  return expect('P1 最近一次失败但有历史有效交付：显示失败并标注保留', true, '❌ + 保留提示');
+});
+
 // ── 4.75 回归：preview 读取路径必须以「会话工作区根」为基准 ──────────────────
 // 真机踩过的 bug：契约读的是 `${DESIGN_ROOT}/protocol/...`，而 preview 读的是
 // `designs/...`（漏了 DESIGN_ROOT 前缀）→ 去工作区根下找 → workspace-file/not-found。
