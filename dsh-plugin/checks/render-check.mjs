@@ -230,9 +230,84 @@ check('inject 不含任何 @deepseek-ai 客户端包', () => {
   return plugin.inject.join(', ');
 });
 
+/** 可换行为的假 remote；默认"文件不存在"。 */
+let read_impl = async () => ({ ok: false, error: { code: 'not-found', message: 'ENOENT' } });
+const remote_impl = {
+  workspaceFiles: {
+    read: (sessionId, path, range, signal) => read_impl(sessionId, path, range, signal),
+  },
+};
+
+/**
+ * 模拟 cordis 的上下文代理守卫 —— 这是本文件**最关键**的一处保真。
+ *
+ * 宿主源码（@deepseek-ai/cordis/lib/index.js 的 ReflectService.handler.get）：
+ *
+ *     if (Reflect.has(target, prop)) return getTraceable(...)
+ *     throw new Error(`cannot get property "${prop}" without inject`)
+ *
+ * `ctx.remote` 是一个**点号命名空间代理**：访问 `ctx.remote.workspaceFiles`
+ * 会去解析名为 `remote.workspaceFiles` 的**独立 cordis 服务**。该服务由
+ * `dsh-api-workspace-files` 的客户端半边经 `ctx.remote.$mount(contribution)` 挂载，
+ * **必须由插件在自己的 `inject` 数组里显式声明**，否则解析失败并抛出上述错误
+ * （错误里的属性名正是点号全名）。
+ *
+ * ⚠️ 早期版本这里用的是裸 JS 对象 `{ workspaceFiles: {...} }`。
+ * 普通对象没有这道守卫，所以"只声明了 remote、没声明 remote.workspaceFiles"
+ * 这种真实的宿主 DI 错误**被假 remote 掩盖了**，导致真机才暴露。
+ * 现在改用 Proxy 复刻守卫，假 remote 再也盖不住这类错误。
+ */
+function make_cordis_remote(declared, impl) {
+  const declaredSet = new Set(declared);
+  return new Proxy(impl, {
+    get(target, prop, receiver) {
+      if (typeof prop === 'symbol' || prop === 'then') return Reflect.get(target, prop, receiver);
+      const dotted = `remote.${String(prop)}`;
+      if (!declaredSet.has(dotted)) {
+        throw new Error(`cannot get property "${dotted}" without inject`);
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
 check('inject 含只读数据服务 remote', () => {
   assert(plugin.inject.includes('remote'), '应注入 remote（dsh-api-remotes）');
   return 'remote 已注入';
+});
+
+// ── 回归：本次真机故障 "cannot get property \"remote.workspaceFiles\" without inject" ──
+check('回归：inject 同时声明点号服务 remote.workspaceFiles', () => {
+  assert(
+    plugin.inject.includes('remote.workspaceFiles'),
+    '必须声明 remote.workspaceFiles —— 它是 dsh-api-workspace-files 经 $mount 挂载的独立服务，' +
+      '只声明 remote 会在真机上抛 cannot get property "remote.workspaceFiles" without inject',
+  );
+  return plugin.inject.join(', ');
+});
+
+check('回归：守卫能复现宿主报错（反向对照，证明测试非空转）', () => {
+  // 故意只声明 remote，缺 remote.workspaceFiles —— 必须抛出与真机一致的错误
+  const broken = make_cordis_remote(['remote'], remote_impl);
+  let caught = null;
+  try {
+    void broken.workspaceFiles;
+  } catch (error) {
+    caught = error;
+  }
+  assert(caught !== null, '缺声明时应当抛错，否则守卫是失效的');
+  assert(
+    caught.message === 'cannot get property "remote.workspaceFiles" without inject',
+    `报错文案应与宿主一致，实际：${caught.message}`,
+  );
+  return caught.message;
+});
+
+check('回归：按当前声明访问 remote.workspaceFiles 不抛错', () => {
+  const guarded = make_cordis_remote(plugin.inject, remote_impl);
+  const wf = guarded.workspaceFiles;
+  assert(wf && typeof wf.read === 'function', 'remote.workspaceFiles.read 应可用');
+  return '守卫通过';
 });
 
 // ── 3. 假 ctx：捕获注册，并验证 cleanup 形态 ────────────────────────────────
@@ -241,16 +316,10 @@ const inject_calls = [];
 const locale_copy = {};
 let locale_bound = null;
 
-/** 可换行为的假 remote；默认"文件不存在"。 */
-let read_impl = async () => ({ ok: false, error: { code: 'not-found', message: 'ENOENT' } });
-const remote = {
-  workspaceFiles: {
-    read: (sessionId, path, range, signal) => read_impl(sessionId, path, range, signal),
-  },
-};
 
 const ctx = {
-  remote,
+  // 守卫用的声明列表**取自插件自己声明的 inject** —— 插件没声明就真的会抛。
+  remote: make_cordis_remote(plugin.inject, remote_impl),
   locale: {
     register(namespace, copy) {
       locale_copy[namespace] = copy;

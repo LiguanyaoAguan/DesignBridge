@@ -662,8 +662,21 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      // `remote` 来自宿主已挂载的 dsh-api-remotes / dsh-api-workspace-files（只读服务）
-      inject: ['slots', 'sidebarRightTabs', 'locale', 'remote'],
+      // ⚠️ 依赖声明必须写**两级**，缺一不可：
+      //
+      //   'remote'                —— 传输/网关服务（`$mount` 在它上面）
+      //   'remote.workspaceFiles' —— **独立的一个 cordis 服务**，由
+      //                              dsh-api-workspace-files 的客户端半边
+      //                              经 `ctx.remote.$mount(contribution)` 挂载上来
+      //
+      // cordis 的上下文代理按**点号全名**解析服务。只声明 `remote` 而访问
+      // `ctx.remote.workspaceFiles` 时，解析到未声明的 `remote.workspaceFiles`，
+      // 宿主会抛：cannot get property "remote.workspaceFiles" without inject
+      //
+      // 官方参考实现（dsh-client-ui-sidebar-documentpreview）原文即为：
+      //   inject = ["slots", "locale", "sidebarRightTabs", "remote",
+      //             "remote.workspaceFiles", "configForms", "resources"]
+      inject: ['slots', 'sidebarRightTabs', 'locale', 'remote', 'remote.workspaceFiles'],
       apply(ctx) {
         if (ctx.locale !== undefined) {
           ctx.effect(() => ctx.locale.register(NAMESPACE, COPY), 'designbridge-studio.copy');

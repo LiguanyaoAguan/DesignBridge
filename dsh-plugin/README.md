@@ -166,6 +166,74 @@ DSH 官方技能 `cordis-plugin-development` 明确：
 
 ---
 
+## 真机故障修复：`cannot get property "remote.workspaceFiles" without inject`
+
+### 根因
+
+`ctx.remote` 是一个**点号命名空间代理**。`remote.workspaceFiles` **不是** `remote` 上的普通属性，
+而是一个**独立的 cordis 服务**——由 `@deepseek-ai/dsh-api-workspace-files` 的客户端半边
+经 `ctx.remote.$mount(contribution)` 挂载上来：
+
+```js
+// dsh-api-workspace-files/lib/client.js
+const inject = ["remote"];
+async function apply(ctx) {
+  for (const contribution of [...]) disposers.push(await ctx.remote.$mount(contribution));
+}
+```
+
+宿主 cordis 的上下文代理按**点号全名**解析服务
+（`@deepseek-ai/cordis/lib/index.js` 的 `ReflectService.handler.get`）：
+
+```js
+if (Reflect.has(target, prop)) return getTraceable(...)
+throw new Error(`cannot get property "${prop}" without inject`)
+```
+
+因此访问 `ctx.remote.workspaceFiles` 时，解析的是**未声明的 `remote.workspaceFiles`**，
+于是抛出上面那条错误（错误里的属性名正是**点号全名**）。
+
+### 缺的是哪一级
+
+只声明了 `'remote'`（传输/网关服务，`$mount` 在它上面），
+**漏了独立的一级 `'remote.workspaceFiles'`**。
+
+官方参考实现 `dsh-client-ui-sidebar-documentpreview` 原文即为：
+
+```js
+inject = ["slots", "locale", "sidebarRightTabs", "remote",
+          "remote.workspaceFiles", "configForms", "resources"]
+```
+
+### 最小修复
+
+```js
+// 前
+inject: ['slots', 'sidebarRightTabs', 'locale', 'remote']
+// 后
+inject: ['slots', 'sidebarRightTabs', 'locale', 'remote', 'remote.workspaceFiles']
+```
+
+一行，不动 API、不动错误态、不动来源卡片、不动手动刷新、不动零构建方案。
+
+### 为什么原先的测试没抓到（已修）
+
+假 remote 原来是**裸 JS 对象** `{ workspaceFiles: { read } }`——普通对象没有 cordis 那道守卫，
+于是"漏声明点号服务"这类**真实的宿主 DI 错误被假 remote 掩盖了**，真机才暴露。
+
+现在检查脚本改用 **Proxy 复刻 cordis 守卫**，并且守卫的声明列表**取自插件自己的 `inject`**：
+插件没声明就真的会抛。并加了一条**反向对照**（故意只声明 `remote`），
+断言必须抛出与真机逐字一致的错误——保证测试**不是空转**。
+
+```
+✅ 回归：inject 同时声明点号服务 remote.workspaceFiles
+✅ 回归：守卫能复现宿主报错（反向对照，证明测试非空转）
+        — cannot get property "remote.workspaceFiles" without inject
+✅ 回归：按当前声明访问 remote.workspaceFiles 不抛错
+```
+
+---
+
 ## v0.3b / b-1：真实 design-contract.json 只读加载
 
 b-1 把面板从"硬编码演示值"升级为"**读取真实设计契约并显示其来源**"。
