@@ -17,14 +17,30 @@ dsh-plugin/
 ├── cordis.patch.yml               挂载声明（由安装器读取，不手写进 profile）
 ├── index.js                       宿主半边：空 apply()（纯客户端插件的标准形态）
 ├── client.js                      客户端半边：__ModuleLoader__ 工厂 + 面板组件
+├── src/model/
+│   ├── preview-schema.mjs          Preview Schema v1 结构校验
+│   └── preview-model.mjs           纯解析、限制与 contract 交叉校验
+├── tests/
+│   ├── preview-schema.test.mjs     Schema 单元测试（Node 原生 node:test）
+│   └── preview-model.test.mjs      模型/安全/边界测试
 ├── checks/
-│   └── render-check.mjs           渲染冒烟检查（零依赖，用宿主 React）
+│   └── render-check.mjs           b-1 渲染冒烟检查（零依赖，用宿主 React）
 └── README.md                      本文件
 ```
 
 四个安装文件与官方模板 `templates/decoration/` 一一对应，只多了 `checks/` 与本文档。
 
 ---
+
+## b-2 Preview Schema（只读数据模型）
+
+当前工作版本路径为 `designs/<designId>/preview.json`；历史版本由 Git 管理。preview 的 designId/designVersion 与 contract 精确匹配，页面 ID 对应 contract.screenId（仅字段存在时核验），viewport.orientation 对应 contract.layout.orientation（仅字段存在时核验）。b-2 不实现多版本目录、迁移、同步、画布、Inspector、事件执行、编辑或自动刷新。
+
+Schema v1（`previewSchemaVersion: 1.0.0`）严格接受 frame、text、button、card、list、list-item、badge、divider、image-placeholder 九种类型。frame/card children 可省略或为空；list 必须含一个或多个 list-item；叶节点禁止 children。flow/absolute 为隔离布局模式；frame.props.layoutMode 必填，绝对定位只可用于 absolute frame 的直接子项。节点不含 state/events。
+
+解析器在 JSON.parse 前限制 UTF-8 输入不超过 512 KiB；每文件最多 32 pages、每页 2,000 nodes、深度 12；错误最多 50 条。未知字段/类型/非法嵌套均拒绝。重复 JSON 键沿用 JSON.parse 后值覆盖行为，不检测、不拒绝；不自制解析器。校验器是纯 JS 模块，不导入 React、文件系统、网络或 DSH 服务。
+
+运行时 API：`parsePreviewText(text, contract)` 返回 `{ ok: true, value }` 或 `{ ok: false, errors, truncatedErrors? }`。当前 b-1 UI 的真实 contract 读取路径不变，b-2 模块尚未接入 UI。
 
 ## 构建：**本插件不需要构建**
 
@@ -57,10 +73,11 @@ dsh-plugin/
 ```bash
 cd dsh-plugin
 
-# 1) 语法
+# 1) 语法与 Preview 模型测试（纯 Node；无新增依赖）
 node --check index.js && node --check client.js && node --check checks/render-check.mjs
+node tests/preview-schema.test.mjs && node tests/preview-model.test.mjs
 
-# 2) 渲染冒烟检查（零依赖；React 从宿主安装目录解析）
+# 2) b-1 渲染冒烟检查（零依赖；React 从宿主安装目录解析）
 DSH_NODE_MODULES="$DSH_HOME/node_modules" node checks/render-check.mjs
 ```
 

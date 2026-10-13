@@ -1,0 +1,51 @@
+{
+  "previewSchemaVersion": "1.0.0",
+  "designId": "demo-library",
+  "designVersion": "demo-0.1",
+  "pages": [
+    {
+      "id": "library",
+      "title": "文件库",
+      "viewport": { "widthDp": 1280, "heightDp": 800, "orientation": "landscape" },
+      "root": {
+        "id": "root",
+        "type": "frame",
+        "props": { "direction": "row", "layoutMode": "flow", "gap": 12, "padding": 16 },
+        "children": [
+          {
+            "id": "navigation",
+            "type": "card",
+            "props": { "title": "导航", "subtitle": "浏览分类" },
+            "layout": { "mode": "flow" },
+            "children": [
+              { "id": "nav-title", "type": "text", "props": { "text": "全部文件", "size": 20, "weight": "semibold", "tone": "primary" }, "layout": { "mode": "flow" } },
+              { "id": "nav-button", "type": "button", "props": { "label": "最近项目", "variant": "ghost", "disabled": false }, "layout": { "mode": "flow" } },
+              { "id": "nav-badge", "type": "badge", "props": { "label": "3 项", "tone": "secondary" }, "layout": { "mode": "flow" } },
+              { "id": "nav-divider", "type": "divider", "props": {}, "layout": { "mode": "flow" } }
+            ]
+          },
+          {
+            "id": "recordings",
+            "type": "list",
+            "props": { "dense": false },
+            "layout": { "mode": "flow" },
+            "children": [
+              { "id": "recording-1", "type": "list-item", "props": { "label": "录音 001", "meta": "今天 10:30", "trailing": "02:14" }, "layout": { "mode": "flow" } },
+              { "id": "recording-2", "type": "list-item", "props": { "label": "录音 002", "meta": "昨天 16:05", "trailing": "05:42" }, "layout": { "mode": "flow" } }
+            ]
+          },
+          {
+            "id": "detail",
+            "type": "card",
+            "props": { "title": "录音详情", "subtitle": "示例占位内容" },
+            "layout": { "mode": "flow" },
+            "children": [
+              { "id": "detail-placeholder", "type": "image-placeholder", "props": { "label": "示例封面占位" }, "layout": { "mode": "flow" } },
+              { "id": "detail-caption", "type": "text", "props": { "text": "此数据仅用于 DesignBridge 公开示例。", "tone": "secondary" }, "layout": { "mode": "flow" } }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
