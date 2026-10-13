@@ -48,10 +48,36 @@ test('malicious strings remain data and never execute', () => {
   const hostile = { ...sample, pages: [{ ...sample.pages[0], root: { id: 'root', type: 'frame', props: { direction: 'row', layoutMode: 'flow' }, children: [{ id: 'txt', type: 'text', props: { text: '<img src=x onerror="globalThis.__previewExecuted=true"> javascript:alert(1)' } }] } }] };
   assert.equal(parse(hostile).ok, true); assert.equal(globalThis.__previewExecuted, false); delete globalThis.__previewExecuted;
 });
-test('errors capped at 50 and JSON parser not invoked for huge input', () => {
-  const manyPages = { ...sample, pages: Array.from({ length: LIMITS.maxPages + 1 }, (_, i) => ({ ...sample.pages[0], id: `p${i}` })) };
-  const result = parse(manyPages);
-  assert.equal(result.ok, false); assert.ok(result.errors.length <= 50);
+test('error cap flag means validation stopped at 50; exactly 50 and >50 are covered', () => {
+  const basePage = sample.pages[0];
+  const manyIssuesRoot = { id: 'root', type: 'frame', props: { direction: 'row', layoutMode: 'flow' }, children: Array.from({ length: 25 }, (_, i) => ({ id: `n${i}`, type: 'text', props: { text: 'x', extra: i }, extraNodeField: true })) };
+  const exact50 = { ...sample, pages: [{ ...basePage, root: manyIssuesRoot }] };
+  const atCap = parse(exact50);
+  assert.equal(atCap.ok, false); assert.equal(atCap.errors.length, 50); assert.equal('truncatedErrors' in atCap, false);
+  const over50 = { ...exact50, pages: [{ ...basePage, root: { ...manyIssuesRoot, children: [...manyIssuesRoot.children, { id: 'extra', type: 'text', props: { text: 'x', extra: true }, extraNodeField: true }] } }] };
+  const aboveCap = parse(over50);
+  assert.equal(aboveCap.ok, false); assert.equal(aboveCap.errors.length, 50); assert.equal(aboveCap.truncatedErrors, true);
+  const noIssues = parse(sample); assert.equal(noIssues.ok, true); assert.equal('truncatedErrors' in noIssues, false);
   const tooLarge = ' '.repeat(LIMITS.maxBytes + 1);
   assert.equal(parsePreviewText(tooLarge, contract).errors[0].code, 'input-too-large');
+});
+test('malformed but valid JSON structures never throw', () => {
+  const malformed = [
+    '{"previewSchemaVersion":"1.0.0","designId":"demo-library","designVersion":"demo-0.1","pages":[null]}',
+    '{"previewSchemaVersion":"1.0.0","designId":"demo-library","designVersion":"demo-0.1","pages":[{"id":"library","title":"x","viewport":[],"root":{"id":"r","type":"frame","props":null,"children":[null,{"id":"x","type":"text","props":{"text":"x"},"layout":[]}]}}]}'
+  ];
+  for (const json of malformed) {
+    assert.doesNotThrow(() => parsePreviewText(json, contract));
+    assert.equal(parsePreviewText(json, contract).ok, false);
+  }
+});
+test('valid-JSON fuzz shapes produce structured results without uncaught exceptions', () => {
+  const candidates = [null, [], { ...sample, pages: [null] }, { ...sample, pages: [{}] }, { ...sample, pages: [{ ...sample.pages[0], root: { id: 'r', type: 'frame', props: [], children: [null, 1, 'x', []] } }] }, { ...sample, pages: [{ ...sample.pages[0], root: { id: 'r', type: 'frame', props: { direction: 'row', layoutMode: 'flow' }, children: [{ id: 'list', type: 'list', props: {}, children: [null, { id: 'li', type: 'list-item', props: { label: 'x' }, layout: false }] }] } }] }];
+  for (const candidate of candidates) {
+    const json = JSON.stringify(candidate);
+    assert.doesNotThrow(() => parsePreviewText(json, contract));
+    const result = parsePreviewText(json, contract);
+    assert.ok(result && typeof result.ok === 'boolean');
+    if (!result.ok) assert.ok(Array.isArray(result.errors));
+  }
 });

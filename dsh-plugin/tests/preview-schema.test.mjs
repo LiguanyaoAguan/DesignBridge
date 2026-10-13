@@ -28,6 +28,13 @@ test('strict unknown fields, types, props and leaves', () => {
   const leafWithChildren = base(); leafWithChildren.pages[0].root.children = [node('text', 't', { text: 'x' })]; leafWithChildren.pages[0].root.children[0].children = [];
   invalid(leafWithChildren, 'invalid-nesting', '$.pages[0].root.children[0].children');
   invalid(base({ id: 'root', type: 'frame', props: { direction: 'row' } }), 'required-field', '$.pages[0].root.props.layoutMode');
+  for (const props of [undefined, null, [], 'bad']) {
+    const malformedParent = { id: 'root', type: 'frame', ...(props !== undefined ? { props } : {}), children: [node('text', 'child', { text: 'ok' })] };
+    const result = validatePreviewSchema(base(malformedParent));
+    assert.equal(result.ok, false);
+    assert.ok(result.errors.some(e => e.path === '$.pages[0].root.props' && e.code === 'type-mismatch'));
+    assert.doesNotThrow(() => validatePreviewSchema(base(malformedParent)));
+  }
 });
 test('layout flow and absolute constraints', () => {
   const abs = { id: 'root', type: 'frame', props: { direction: 'row', layoutMode: 'absolute' }, children: [node('text', 't', { text: 'x' })] };
@@ -38,6 +45,12 @@ test('layout flow and absolute constraints', () => {
   const partial = { id: 'root', type: 'frame', props: { direction: 'row', layoutMode: 'absolute' }, children: [node('text', 't', { text: 'x' })] };
   partial.children[0].layout = { mode: 'absolute', x: 0, y: 0, width: 80 };
   invalid(base(partial), 'required-field', '$.pages[0].root.children[0].layout.height');
+  const malformedLayouts = [null, [], 'flow', { mode: 'absolute', x: 'bad', y: 0, width: 10, height: 10 }];
+  for (const layout of malformedLayouts) {
+    const root = { id: 'root', type: 'frame', props: { direction: 'row', layoutMode: 'absolute' }, children: [{ ...node('text', 'child', { text: 'ok' }), layout }] };
+    assert.doesNotThrow(() => validatePreviewSchema(base(root)));
+    assert.equal(validatePreviewSchema(base(root)).ok, false);
+  }
 });
 test('duplicate ids, enum/range, and schema version errors', () => {
   const dup = base({ id: 'root', type: 'frame', props: { direction: 'row', layoutMode: 'flow' }, children: [node('text', 'same', { text: 'a' }), node('text', 'same', { text: 'b' })] });

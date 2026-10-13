@@ -38,9 +38,9 @@ dsh-plugin/
 
 Schema v1（`previewSchemaVersion: 1.0.0`）严格接受 frame、text、button、card、list、list-item、badge、divider、image-placeholder 九种类型。frame/card children 可省略或为空；list 必须含一个或多个 list-item；叶节点禁止 children。flow/absolute 为隔离布局模式；frame.props.layoutMode 必填，绝对定位只可用于 absolute frame 的直接子项。节点不含 state/events。
 
-解析器在 JSON.parse 前限制 UTF-8 输入不超过 512 KiB；每文件最多 32 pages、每页 2,000 nodes、深度 12；错误最多 50 条。未知字段/类型/非法嵌套均拒绝。重复 JSON 键沿用 JSON.parse 后值覆盖行为，不检测、不拒绝；不自制解析器。校验器是纯 JS 模块，不导入 React、文件系统、网络或 DSH 服务。
+解析器在 JSON.parse 前限制 UTF-8 输入不超过 512 KiB；每文件最多 32 pages、每页 2,000 nodes、深度 12；最多返回 50 条错误。`truncatedErrors: true` 仅在校验确实发现第 51 条错误（因而丢弃至少一条）时返回；恰好 50 条错误不带此标志。达到 50 条后继续检查直至发现下一条错误或完成校验，确认有额外错误后即停止。未知字段/类型/非法嵌套均拒绝。重复 JSON 键沿用 JSON.parse 后值覆盖行为，不检测、不拒绝；不自制解析器。校验器是纯 JS 模块，不导入 React、文件系统、网络或 DSH 服务。
 
-运行时 API：`parsePreviewText(text, contract)` 返回 `{ ok: true, value }` 或 `{ ok: false, errors, truncatedErrors? }`。当前 b-1 UI 的真实 contract 读取路径不变，b-2 模块尚未接入 UI。
+运行时 API：`parsePreviewText(text, contract)` 返回 `{ ok: true, value }` 或 `{ ok: false, errors, truncatedErrors? }`。缺失、null、数组等非法 props/layout 和异常 children 形状均报告结构化错误，不应抛异常。当前 b-1 UI 的真实 contract 读取路径不变，b-2 模块尚未接入 UI。
 
 ## 构建：**本插件不需要构建**
 

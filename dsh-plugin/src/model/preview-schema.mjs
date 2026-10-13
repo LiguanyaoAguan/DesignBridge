@@ -19,6 +19,16 @@ export const COMPONENT_TYPES = Object.freeze(Object.keys(COMPONENTS));
 
 function add(errors, code, path, message) {
   if (errors.length < LIMITS.maxErrors) errors.push({ code, path, message });
+  else errors.truncatedErrors = true;
+}
+function stopIfAtCap(errors) { return Boolean(errors.truncatedErrors); }
+function cappedResult(errors, value) {
+  if (errors.length === 0) return { ok: true, value };
+  // true means at least one error was actually omitted after reaching the cap.
+  return { ok: false, errors, ...(errors.truncatedErrors ? { truncatedErrors: true } : {}) };
+}
+function parentLayoutMode(parent) {
+  return parent?.type === 'frame' && isObject(parent.props) ? parent.props.layoutMode : undefined;
 }
 function exactKeys(value, allowed, path, errors) {
   for (const key of Object.keys(value)) addIf(errors, !allowed.includes(key), 'unknown-field', `${path}.${key}`, `未知字段：${key}`);
@@ -54,14 +64,14 @@ function checkProps(type, props, path, errors) {
 }
 function checkLayout(layout, path, parent, errors) {
   if (layout === undefined) {
-    addIf(errors, parent?.type === 'frame' && parent.props.layoutMode === 'absolute', 'layout-mode-conflict', path, 'absolute frame 的直接子节点必须声明 absolute layout');
+    addIf(errors, parentLayoutMode(parent) === 'absolute', 'layout-mode-conflict', path, 'absolute frame 的直接子节点必须声明 absolute layout');
     return;
   }
   if (!isObject(layout)) { add(errors, 'type-mismatch', path, 'layout 必须是对象'); return; }
   const mode = layout.mode;
   if (mode === 'flow') {
     exactKeys(layout, ['mode'], path, errors);
-    addIf(errors, parent?.type === 'frame' && parent.props.layoutMode === 'absolute', 'layout-mode-conflict', `${path}.mode`, 'absolute frame 的直接子节点不能使用 flow');
+    addIf(errors, parentLayoutMode(parent) === 'absolute', 'layout-mode-conflict', `${path}.mode`, 'absolute frame 的直接子节点不能使用 flow');
     return;
   }
   if (mode !== 'absolute') { add(errors, 'invalid-value', `${path}.mode`, 'mode 必须为 flow 或 absolute'); return; }
@@ -70,10 +80,10 @@ function checkLayout(layout, path, parent, errors) {
     if (!own(layout, key)) add(errors, 'required-field', `${path}.${key}`, 'absolute layout 缺少坐标/尺寸');
     else if (!finite(layout[key]) || (key === 'width' || key === 'height' ? layout[key] <= 0 || layout[key] > 4096 : Math.abs(layout[key]) > 4096)) add(errors, 'invalid-value', `${path}.${key}`, '必须是有效 dp 数值；宽高须 >0 且 ≤4096');
   }
-  addIf(errors, parent?.type !== 'frame' || parent.props.layoutMode !== 'absolute', 'layout-mode-conflict', path, 'absolute layout 仅允许作为 absolute frame 的直接子节点');
+  addIf(errors, parent?.type !== 'frame' || parentLayoutMode(parent) !== 'absolute', 'layout-mode-conflict', path, 'absolute layout 仅允许作为 absolute frame 的直接子节点');
 }
 function walkNode(node, path, depth, context, errors) {
-  if (errors.length >= LIMITS.maxErrors) return;
+  if (stopIfAtCap(errors)) return;
   if (!isObject(node)) { add(errors, 'type-mismatch', path, '组件节点必须是对象'); return; }
   exactKeys(node, ['id', 'type', 'props', 'layout', 'children'], path, errors);
   if (typeof node.id !== 'string' || !ID_RE.test(node.id)) add(errors, 'invalid-value', `${path}.id`, 'ID 格式非法');
@@ -93,7 +103,8 @@ function walkNode(node, path, depth, context, errors) {
     if (!Array.isArray(node.children)) { add(errors, 'type-mismatch', `${path}.children`, 'children 必须是数组'); return; }
     if (node.type === 'list' && node.children.length === 0) add(errors, 'invalid-nesting', `${path}.children`, 'list 必须至少包含一个 list-item');
     node.children.forEach((child, index) => {
-      if (node.type === 'list' && child?.type !== 'list-item') add(errors, 'invalid-nesting', `${path}.children[${index}].type`, 'list 只允许直接包含 list-item');
+      if (stopIfAtCap(errors)) return;
+      if (node.type === 'list' && (!isObject(child) || child.type !== 'list-item')) add(errors, 'invalid-nesting', `${path}.children[${index}].type`, 'list 只允许直接包含 list-item');
       walkNode(child, `${path}.children[${index}]`, depth + 1, { ids: context.ids, get count() { return context.count; }, set count(v) { context.count = v; }, parent: node }, errors);
     });
   }
@@ -109,12 +120,13 @@ export function validatePreviewSchema(value) {
     if (!own(value, key)) add(errors, 'required-field', `$.${key}`, '缺少必填字段');
     else boundedString(value[key], `$.${key}`, errors, { nonempty: true, max: 128 });
   }
+  if (stopIfAtCap(errors)) return cappedResult(errors, value);
   if (!Array.isArray(value.pages)) add(errors, 'type-mismatch', '$.pages', 'pages 必须是数组');
   else {
     if (value.pages.length < 1 || value.pages.length > LIMITS.maxPages) add(errors, 'limit-exceeded', '$.pages', `pages 数量必须为 1–${LIMITS.maxPages}`);
     const pageIds = new Set();
     value.pages.forEach((page, index) => {
-      if (errors.length >= LIMITS.maxErrors) return;
+      if (stopIfAtCap(errors)) return;
       const path = `$.pages[${index}]`;
       if (!isObject(page)) { add(errors, 'type-mismatch', path, 'page 必须是对象'); return; }
       exactKeys(page, ['id', 'title', 'viewport', 'root'], path, errors);
@@ -135,5 +147,5 @@ export function validatePreviewSchema(value) {
       else walkNode(page.root, `${path}.root`, 1, { ids: new Set(), count: 0, parent: null }, errors);
     });
   }
-  return errors.length ? { ok: false, errors: errors.slice(0, LIMITS.maxErrors), ...(errors.length >= LIMITS.maxErrors ? { truncatedErrors: true } : {}) } : { ok: true, value };
+  return cappedResult(errors, value);
 }
