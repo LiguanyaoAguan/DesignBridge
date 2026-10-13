@@ -5,9 +5,17 @@
  * 因此这一层拿不到任何"直接读写任意路径"的能力。
  */
 import { existsSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, resolve as resolve_path } from "node:path";
 import { randomBytes } from "node:crypto";
-import { WorkspaceError, atomic_write_text, read_json, resolve_readable, to_relative, type Workspace } from "./workspace.js";
+import {
+  WorkspaceError,
+  atomic_write_text,
+  isInside,
+  read_json,
+  resolve_readable,
+  to_relative,
+  type Workspace,
+} from "./workspace.js";
 import {
   DesignContractSchema,
   ManifestSchema,
@@ -235,8 +243,7 @@ export function submit_result(ctx: ToolContext, input: SubmitResultInput): Submi
     );
   }
 
-  const outbox = normalize(ctx.outbox_dir);
-  assert_outbox_allowed(manifest, outbox);
+  const outbox = assert_outbox_allowed(ctx.workspace, manifest, ctx.outbox_dir);
 
   const stamp = input.executedAt.replace(/[:.]/g, "-");
   const suffix = randomBytes(4).toString("hex");
@@ -290,22 +297,99 @@ export function submit_result(ctx: ToolContext, input: SubmitResultInput): Submi
  * 隔离输出目录的准入检查。
  *
  * 仅仅"不等于 result 文件"是不够的——把 outbox 指到 `protocol/` 或 `handoff/`
- * 同样会污染协议目录（比如往 `handoff/` 里塞一堆结果文件，或与协议文件同名）。
+ * 同样会污染协议目录。而且**字符串前缀比较本身也不够**：
+ * `preview/../handoff` 在字符串上既不是 `handoff` 也不以 `handoff/` 开头，
+ * 但 `path.resolve` 之后就是 `<workspace>/handoff`——实测确实能绕过旧实现写进协议目录。
  *
- * 规则（全部拒绝）：
- *   1. outbox 为空 / 等于工作区根 —— 范围过大，等同放任写入；
- *   2. outbox 等于或位于任一**受保护路径**之内（受保护路径 = 协议文件自身与其所在目录）；
- *   3. outbox 是任一受保护路径的**上级** —— 否则它把协议目录整个罩住了。
+ * 因此采用两道防线：
  *
- * 受保护目录由 manifest 声明的路径推导（如 `protocol/manifest.json` -> `protocol/`），
- * 并额外把 `protocol` 固定加入，避免 manifest 被改成指向别处时失去保护。
+ * **防线一（主要）：只接受"干净相对路径"，模糊形式一律拒绝。**
+ * 拒绝：空值、首尾空白、反斜杠、绝对路径（含盘符）、
+ *       任何 `.` 或 `..` 路径段、任何内部空段（即 `//`）。
+ * 这一条从根上消灭歧义：没有 `..`，就不存在"规范化后才变回协议目录"的可能。
+ *
+ * **防线二（兜底）：规范化后做绝对路径比较。**
+ * 即使将来防线一被放宽或出现新的绕过形式，只要 `resolve(root, outbox)` 与
+ * 任一受保护路径相等、位于其内、或包含其在内，仍然拒绝。
+ *
+ * 受保护路径由 manifest 声明的四条路径推导（协议文件自身 + 其所在目录），
+ * 并额外固定保护 `protocol`，避免 manifest 被改成指向别处时失去保护。
+ *
+ * @returns 规范化后的 outbox（调用方应当使用这个返回值，而不是原始输入）
  */
-function assert_outbox_allowed(manifest: Manifest, outbox: string): void {
-  if (outbox.length === 0 || outbox === ".") {
-    throw new ToolError("WRITE_REJECTED", "隔离输出目录不能是工作区根目录", `outbox=${JSON.stringify(outbox)}`);
+function assert_outbox_allowed(workspace: Workspace, manifest: Manifest, raw_outbox: string): string {
+  const outbox = clean_relative_outbox(raw_outbox);
+  const guarded_paths = collect_guarded_paths(manifest);
+
+  for (const guarded of guarded_paths) {
+    // ---- 防线一：相对形式 ----
+    if (outbox === guarded || outbox.startsWith(`${guarded}/`)) {
+      throw new ToolError("WRITE_REJECTED", "隔离输出目录不得位于协议目录内", `outbox=${outbox} 落在受保护路径 ${guarded} 之下`);
+    }
+    if (guarded.startsWith(`${outbox}/`)) {
+      throw new ToolError("WRITE_REJECTED", "隔离输出目录不得覆盖协议路径", `outbox=${outbox} 是受保护路径 ${guarded} 的上级`);
+    }
+
+    // ---- 防线二：绝对形式（对 .. / 符号链接等做规范化后再比一次）----
+    const abs_outbox = resolve_path(workspace.root, outbox);
+    const abs_guarded = resolve_path(workspace.root, guarded);
+    if (abs_outbox === abs_guarded || isInside(abs_guarded, abs_outbox) || isInside(abs_outbox, abs_guarded)) {
+      throw new ToolError(
+        "WRITE_REJECTED",
+        "隔离输出目录经规范化后仍与协议路径重叠",
+        `outbox=${outbox} -> ${abs_outbox}；受保护 ${guarded} -> ${abs_guarded}`,
+      );
+    }
   }
 
-  const protected_paths = new Set<string>(["protocol/manifest.json", "protocol"]);
+  return outbox;
+}
+
+/**
+ * 把配置值收敛成"干净相对路径"，并拒绝一切模糊形式。
+ *
+ * 只容忍一个无害的写法差异：**末尾斜杠**（`handoff/` 与 `handoff` 等价）。
+ * 其余一律拒绝，宁可让配置报错，也不留下"看起来不是、规范化后是"的空间。
+ */
+function clean_relative_outbox(raw: string): string {
+  if (typeof raw !== "string") {
+    throw new ToolError("WRITE_REJECTED", "隔离输出目录必须是字符串");
+  }
+  if (raw.trim().length === 0) {
+    throw new ToolError("WRITE_REJECTED", "隔离输出目录不能为空", `outbox=${JSON.stringify(raw)}`);
+  }
+  if (raw !== raw.trim()) {
+    throw new ToolError("WRITE_REJECTED", "隔离输出目录不得含首尾空白", `outbox=${JSON.stringify(raw)}`);
+  }
+  if (raw.includes("\\")) {
+    throw new ToolError("WRITE_REJECTED", "隔离输出目录不得含反斜杠（避免与分隔符混淆）", `outbox=${raw}`);
+  }
+  if (raw.startsWith("/") || /^[A-Za-z]:/.test(raw)) {
+    throw new ToolError("WRITE_REJECTED", "隔离输出目录必须是相对路径", `outbox=${raw}`);
+  }
+
+  // 只去掉末尾斜杠，随后任何空段都说明存在连续的 "//"。
+  const without_trailing = raw.replace(/\/+$/, "");
+  const segments = without_trailing.split("/");
+  for (const segment of segments) {
+    if (segment.length === 0) {
+      throw new ToolError("WRITE_REJECTED", "隔离输出目录不得含连续分隔符 //", `outbox=${raw}`);
+    }
+    if (segment === "." || segment === "..") {
+      throw new ToolError("WRITE_REJECTED", "隔离输出目录不得含 . 或 .. 路径段", `outbox=${raw}`);
+    }
+  }
+
+  const cleaned = segments.join("/");
+  if (cleaned.length === 0 || cleaned === ".") {
+    throw new ToolError("WRITE_REJECTED", "隔离输出目录不能是工作区根目录", `outbox=${JSON.stringify(raw)}`);
+  }
+  return cleaned;
+}
+
+/** 汇总受保护路径：协议文件自身 + 其所在目录，外加固定的 protocol 目录。 */
+function collect_guarded_paths(manifest: Manifest): Set<string> {
+  const guarded = new Set<string>(["protocol/manifest.json", "protocol"]);
   for (const declared of [
     manifest.paths.designContract,
     manifest.paths.task,
@@ -313,27 +397,11 @@ function assert_outbox_allowed(manifest: Manifest, outbox: string): void {
     manifest.paths.acceptance,
   ]) {
     const file = normalize(declared);
-    protected_paths.add(file);
+    guarded.add(file);
     const parent = normalize(dirname(file));
-    if (parent.length > 0 && parent !== ".") protected_paths.add(parent);
+    if (parent.length > 0 && parent !== ".") guarded.add(parent);
   }
-
-  for (const guarded of protected_paths) {
-    if (outbox === guarded || outbox.startsWith(`${guarded}/`)) {
-      throw new ToolError(
-        "WRITE_REJECTED",
-        "隔离输出目录不得位于协议目录内",
-        `outbox=${outbox} 落在受保护路径 ${guarded} 之下`,
-      );
-    }
-    if (guarded.startsWith(`${outbox}/`)) {
-      throw new ToolError(
-        "WRITE_REJECTED",
-        "隔离输出目录不得覆盖协议路径",
-        `outbox=${outbox} 是受保护路径 ${guarded} 的上级`,
-      );
-    }
-  }
+  return guarded;
 }
 
 // ---------------------------------------------------------------- helpers

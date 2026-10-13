@@ -20,7 +20,7 @@ DesignBridge 的**本地 MCP Server**。让支持 MCP 的 AI 编程助手直接�
 | 协议 schema | `1.0.0` |
 | 传输 | stdio |
 | 工具数 | 4 |
-| 测试 | 63 项，全部真实执行通过 |
+| 测试 | 79 项，全部真实执行通过 |
 
 > 仅完成**独立服务端**。**未**修改任何 Harness 正式配置，**未**接入任何 MCP 客户端。
 
@@ -157,18 +157,33 @@ node dist/src/index.js
 
 #### 隔离目录的准入规则
 
-`DESIGNBRIDGE_OUTBOX_DIR` **不是随便填的**。以下情况一律拒绝（`WRITE_REJECTED`）：
+`DESIGNBRIDGE_OUTBOX_DIR` **不是随便填的**。准入采用**两道防线**。
 
-| 取值 | 拒绝原因 |
-|---|---|
-| `.` 或空 | 等同工作区根，范围过大 —— 会把协议目录整个罩住 |
-| `protocol` / `handoff` | 落在协议目录上 |
-| `protocol/sub` / `handoff/nested` | 落在协议目录之内 |
-| `protocol/manifest.json` / `handoff/result.json` | 直接指向协议文件 |
-| 任何"是协议路径上级"的目录 | 会把协议路径罩在里面 |
+**防线一：只接受「干净相对路径」，模糊形式一律拒绝。**
 
-受保护路径由 manifest 声明的四条路径**推导**（协议文件自身 + 其所在目录），
-并额外固定保护 `protocol`，避免 manifest 被改成指向别处时失去保护。
+| 拒绝形式 | 示例 | 原因 |
+|---|---|---|
+| 空值 / 纯空白 | `""`、`"  "` | 未指定 |
+| 首尾空白 | `" handoff"`、`"handoff "` | 易被误读 |
+| 反斜杠 | `handoff\\nested` | 与分隔符混淆 |
+| 绝对路径 / 盘符 | `/handoff`、`C:/handoff` | 必须相对工作区 |
+| **`.` 或 `..` 路径段** | `preview/../handoff`、`x/../protocol` | **规范化后会变回协议目录** |
+| **连续分隔符 `//`** | `protocol//sub`、`handoff//` | 同上，写法歧义 |
+
+**防线二：规范化后做绝对路径比较（兜底）。**
+
+即使防线一被放宽或出现新的绕过形式，只要 `resolve(root, outbox)` 与任一受保护路径
+**相等、位于其内、或包含其在内**，仍然拒绝。
+
+**受保护路径**由 manifest 声明的四条路径推导（协议文件自身 + 其所在目录），
+并额外固定保护 `protocol`——避免 manifest 被改成指向别处时失去保护。
+
+> **为什么必须两道防线**：最初的实现只用字符串前缀比较，于是
+> `preview/../handoff` 既不是 `handoff` 也不以 `handoff/` 开头，
+> 却能被 `path.resolve` 解析成 `<workspace>/handoff` —— **实测确实写进了协议目录**。
+> 这是代码审查发现的真实漏洞，现已固化为回归用例。
+
+合规示例：`outbox-ok`、`tmp/mcp-outbox`（不含 `.` / `..` 的嵌套目录也可）。
 
 错误码：`INPUT_INVALID`、`VERSION_MISMATCH`、`WRITE_REJECTED`。
 
@@ -193,7 +208,7 @@ npm test
 | 文件 | 覆盖 |
 |---|---|
 | `dist/tests/workspace.test.js` | 路径穿越、符号链接逃逸、原子写入、**并发竞争**（23 项） |
-| `dist/tests/server.test.js` | 真实启动服务端 + SDK 客户端：initialize、listTools、四个工具、版本一致性、**隔离目录准入**、错误路径（35 项） |
+| `dist/tests/server.test.js` | 真实启动服务端 + SDK 客户端：initialize、listTools、四个工具、版本一致性、**隔离目录准入 22 种取值（含 `..` 与 `//` 绕过）**、错误路径（51 项） |
 | `dist/tests/hygiene.test.js` | stdout 洁净性、日志格式、工作区无意外改动（5 项） |
 
 设置 `DESIGNBRIDGE_TEST_ROOT` 可指定被测仓库根（默认取 `mcp-server` 的上一级）。
@@ -242,7 +257,7 @@ npm test
 | 路径穿越 | 拒绝绝对路径（含 Windows 盘符）、拒绝含 NUL 的路径、词法包含性检查 |
 | 符号链接逃逸 | 对"最深已存在祖先"与目标自身分别 `realpath` 后再次检查包含性 |
 | 任意路径读写 | 读取类工具**不接受路径参数**；读路径只能来自 `manifest.json` |
-| 任意写入 | 仅 `submit_result` 可写，且只能写进隔离目录；outbox 落在协议目录内/之上、或指向协议文件，一律拒绝 |
+| 任意写入 | 仅 `submit_result` 可写，且只能写进隔离目录。outbox 先按「干净相对路径」校验（拒绝 `.`/`..`/`//`/绝对路径/反斜杠/空白），再做**规范化后的绝对路径比较**兜底 |
 | 半写入文件 | 同目录临时文件 + `rename` 原子替换 |
 | 误覆盖 / 并发覆盖 | 默认 `overwrite: false`；用 `open(O_CREAT\|O_EXCL)` **原子占位**，并发下只有一个写者能赢，其余收到 `WRITE_TARGET_FORBIDDEN` |
 | 协议流污染 | 全程只写 stderr；有回归测试禁止 `console.log` 出现在 `src/` |

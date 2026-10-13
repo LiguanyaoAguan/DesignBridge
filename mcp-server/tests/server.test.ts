@@ -8,7 +8,7 @@
  */
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -443,32 +443,73 @@ it("工具层自带校验：SDK 之后的跨字段一致性由 handler 把关", 
     return code;
   }
 
-  // 协议目录、其子目录、工作区根、以及"罩住协议目录"的上级，全部必须拒绝。
-  for (const bad of [
-    "protocol",
-    "handoff",
-    "protocol/sub",
-    "handoff/nested",
-    "protocol/manifest.json",
-    "handoff/result.json",
-    ".",
-    "",
-  ]) {
-    it(`隔离目录被拒绝：outbox=${JSON.stringify(bad)}`, async () => {
+  /**
+   * 全部必须拒绝的取值。
+   *
+   * 重点是**绕过形式**：字符串前缀比较看不出 `preview/../handoff` 的问题，
+   * 但它 resolve 之后就是 `<ws>/handoff`——这是审查发现的真实漏洞，此处固化为回归用例。
+   */
+  const rejected_outbox_values: Array<[string, string]> = [
+    // —— 直接指向协议目录/文件 ——
+    ["protocol", "协议目录本身"],
+    ["handoff", "协议目录本身"],
+    ["protocol/sub", "协议目录之内"],
+    ["handoff/nested", "协议目录之内"],
+    ["protocol/manifest.json", "直接指向协议文件"],
+    ["handoff/result.json", "直接指向协议文件"],
+    // —— 规范化绕过（本轮修复的核心）——
+    ["preview/../handoff", "经 .. 规范化后落入 handoff"],
+    ["x/../protocol", "经 .. 规范化后落入 protocol"],
+    ["a/b/../../handoff", "多级 .. 规范化后落入 handoff"],
+    ["preview/../handoff/nested", "经 .. 再进子目录"],
+    // —— 重复分隔符 ——
+    ["protocol//sub", "重复分隔符"],
+    ["handoff//", "末尾重复分隔符"],
+    ["preview//../handoff", "重复分隔符 + .."],
+    // —— 工作区根 / 上级 ——
+    [".", "工作区根"],
+    ["", "空值"],
+    ["..", "工作区上级"],
+    /// —— 绝对路径与歧义写法 ——
+    ["/handoff", "绝对路径"],
+    ["C:/handoff", "Windows 盘符"],
+    ["handoff\\nested", "反斜杠"],
+    [" handoff", "前导空白"],
+    ["handoff ", "尾部空白"],
+    ["./handoff", "前导 ./"],
+    ["handoff/", "末尾斜杠（规范化后即协议目录）"],
+  ];
+
+  for (const [bad, why] of rejected_outbox_values) {
+    it(`隔离目录被拒绝（${why}）：outbox=${JSON.stringify(bad)}`, async () => {
       const code = await submit_with_outbox(bad);
       assert.equal(code, "WRITE_REJECTED", `outbox=${JSON.stringify(bad)} 应被拒绝，实际 ${code}`);
     });
   }
 
-  it("隔离目录被拒绝：outbox 指向工作区根（会罩住 protocol/）", async () => {
-    // 工作区根本身无法用相对路径表达，改用 "."：应被拒绝。
-    const code = await submit_with_outbox(".");
-    assert.equal(code, "WRITE_REJECTED");
+  it("所有拒绝尝试都没有污染协议目录", async () => {
+    // 强断言：跑完上面全部拒绝用例后，协议目录内容必须与初始一致。
+    assert.deepEqual(
+      readdirSync(join(workspace, "protocol")).sort(),
+      ["acceptance-rules.md", "design-contract.json", "manifest.json"],
+      "protocol/ 不应多出任何结果文件",
+    );
+    assert.deepEqual(
+      readdirSync(join(workspace, "handoff")).sort(),
+      ["result.json", "task.json"],
+      "handoff/ 不应多出任何结果文件",
+    );
   });
 
   it("合规隔离目录可正常写入", async () => {
     const code = await submit_with_outbox("outbox-ok");
     assert.equal(code, "OK", "普通隔离目录应允许");
     assert.ok(existsSync(join(workspace, "outbox-ok")), "应创建出该目录");
+  });
+
+  it("嵌套的合规隔离目录也可写入", async () => {
+    const code = await submit_with_outbox("tmp/mcp-outbox");
+    assert.equal(code, "OK", "不含 . / .. 的嵌套目录应允许");
+    assert.ok(existsSync(join(workspace, "tmp", "mcp-outbox")), "应创建出嵌套目录");
   });
 });
