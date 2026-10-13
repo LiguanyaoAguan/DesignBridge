@@ -8,12 +8,17 @@ const COMPONENTS = Object.freeze({
   frame: { required: ['direction', 'layoutMode'], optional: ['gap', 'padding'], children: 'any' },
   text: { required: ['text'], optional: ['size', 'weight', 'tone'], children: 'none' },
   button: { required: ['label'], optional: ['variant', 'disabled'], children: 'none' },
-  card: { required: ['title'], optional: ['subtitle'], children: 'any' },
+  card: { required: ['title'], optional: ['subtitle', 'elevation'], children: 'any' },
   list: { required: [], optional: ['dense'], children: 'list-item' },
-  'list-item': { required: ['label'], optional: ['meta', 'trailing'], children: 'none' },
+  'list-item': { required: ['label'], optional: ['subtitle', 'meta', 'trailing', 'asset', 'selected'], children: 'none' },
   badge: { required: ['label'], optional: ['tone'], children: 'none' },
   divider: { required: [], optional: [], children: 'none' },
   'image-placeholder': { required: ['label'], optional: [], children: 'none' },
+  // ── v0.7 高保真组件（全部为**增量**：新字段一律可选，旧设计不提供也能渲染）──
+  icon: { required: ['asset'], optional: ['size', 'tone', 'align', 'label'], children: 'none' },
+  image: { required: ['asset'], optional: ['fit', 'alt'], children: 'none' },
+  input: { required: ['placeholder'], optional: ['value', 'kind', 'state'], children: 'none' },
+  chip: { required: ['label'], optional: ['state', 'tone'], children: 'none' },
 });
 export const COMPONENT_TYPES = Object.freeze(Object.keys(COMPONENTS));
 
@@ -54,12 +59,16 @@ function checkProps(type, props, path, errors) {
   switch (type) {
     case 'frame': en('direction', ['row', 'column']); en('layoutMode', ['flow', 'absolute']); num('gap', 0, 512); num('padding', 0, 512); break;
     case 'text': str('text'); num('size', 1, 256); en('weight', ['normal', 'medium', 'semibold', 'bold']); en('tone', ['primary', 'secondary', 'tertiary']); break;
-    case 'button': str('label'); en('variant', ['primary', 'ghost']); bool('disabled'); break;
-    case 'card': str('title'); str('subtitle', false); break;
+    case 'button': str('label'); en('variant', ['primary', 'secondary', 'ghost']); bool('disabled'); break;
+    case 'card': str('title'); str('subtitle', false); en('elevation', ['none', 'sm', 'md']); break;
     case 'list': bool('dense'); break;
-    case 'list-item': str('label'); str('meta', false); str('trailing', false); break;
+    case 'list-item': str('label'); str('subtitle', false); str('meta', false); str('trailing', false); str('asset', false); bool('selected'); break;
     case 'badge': str('label'); en('tone', ['primary', 'secondary', 'tertiary', 'success', 'warning', 'danger']); break;
     case 'image-placeholder': str('label'); break;
+    case 'icon': str('asset'); num('size', 8, 128); en('tone', ['primary', 'secondary', 'tertiary', 'accent']); en('align', ['start', 'center', 'end']); str('label', false); break;
+    case 'image': str('asset'); en('fit', ['cover', 'contain']); str('alt', false); break;
+    case 'input': str('placeholder'); str('value', false); en('kind', ['search', 'text']); en('state', ['normal', 'focused', 'disabled']); break;
+    case 'chip': str('label'); en('state', ['normal', 'selected', 'disabled']); en('tone', ['primary', 'secondary']); break;
   }
 }
 function checkLayout(layout, path, parent, errors) {

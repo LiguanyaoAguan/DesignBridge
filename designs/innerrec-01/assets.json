@@ -1,0 +1,87 @@
+{
+  "assetSchemaVersion": "1.0.0",
+  "designId": "innerrec-01",
+  "note": "原稿未提供正式图标素材，这里全部是**临时占位**（按原稿 Unicode 符号 1:1 绘制），等待设计方补交。",
+  "assets": [
+    {
+      "id": "nav-all",
+      "kind": "svg",
+      "path": "designs/innerrec-01/assets/icons/nav-all.svg",
+      "title": "nav-all",
+      "temporary": true,
+      "source": "unicode-glyph（原稿只有 Unicode 符号，无正式 SVG）"
+    },
+    {
+      "id": "nav-video",
+      "kind": "svg",
+      "path": "designs/innerrec-01/assets/icons/nav-video.svg",
+      "title": "nav-video",
+      "temporary": true,
+      "source": "unicode-glyph（原稿只有 Unicode 符号，无正式 SVG）"
+    },
+    {
+      "id": "nav-audio",
+      "kind": "svg",
+      "path": "designs/innerrec-01/assets/icons/nav-audio.svg",
+      "title": "nav-audio",
+      "temporary": true,
+      "source": "unicode-glyph（原稿只有 Unicode 符号，无正式 SVG）"
+    },
+    {
+      "id": "nav-extract",
+      "kind": "svg",
+      "path": "designs/innerrec-01/assets/icons/nav-extract.svg",
+      "title": "nav-extract",
+      "temporary": true,
+      "source": "unicode-glyph（原稿只有 Unicode 符号，无正式 SVG）"
+    },
+    {
+      "id": "nav-settings",
+      "kind": "svg",
+      "path": "designs/innerrec-01/assets/icons/nav-settings.svg",
+      "title": "nav-settings",
+      "temporary": true,
+      "source": "unicode-glyph（原稿只有 Unicode 符号，无正式 SVG）"
+    },
+    {
+      "id": "ocr",
+      "kind": "svg",
+      "path": "designs/innerrec-01/assets/icons/ocr.svg",
+      "title": "ocr",
+      "temporary": true,
+      "source": "unicode-glyph（原稿只有 Unicode 符号，无正式 SVG）"
+    },
+    {
+      "id": "brand",
+      "kind": "svg",
+      "path": "designs/innerrec-01/assets/icons/brand.svg",
+      "title": "brand",
+      "temporary": true,
+      "source": "unicode-glyph（原稿只有 Unicode 符号，无正式 SVG）"
+    },
+    {
+      "id": "file-video",
+      "kind": "svg",
+      "path": "designs/innerrec-01/assets/icons/file-video.svg",
+      "title": "file-video",
+      "temporary": true,
+      "source": "unicode-glyph（原稿只有 Unicode 符号，无正式 SVG）"
+    },
+    {
+      "id": "file-audio",
+      "kind": "svg",
+      "path": "designs/innerrec-01/assets/icons/file-audio.svg",
+      "title": "file-audio",
+      "temporary": true,
+      "source": "unicode-glyph（原稿只有 Unicode 符号，无正式 SVG）"
+    },
+    {
+      "id": "player-frame",
+      "kind": "svg",
+      "path": "designs/innerrec-01/assets/icons/player-frame.svg",
+      "title": "播放区",
+      "temporary": true,
+      "source": "原稿 .preview 的渐变+圆形播放键（CSS 复刻）"
+    }
+  ]
+}

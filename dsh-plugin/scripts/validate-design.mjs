@@ -25,6 +25,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseContractText, CONTRACT_SCHEMA_VERSION, CONTRACT_LIMITS } from '../src/model/contract-schema.mjs';
 import { parsePreviewText } from '../src/model/preview-model.mjs';
 import { PREVIEW_SCHEMA_VERSION, LIMITS, COMPONENT_TYPES } from '../src/model/preview-schema.mjs';
+import { validateAssets, checkAssetReferences, ASSET_SCHEMA_VERSION, ASSET_LIMITS } from '../src/model/asset-schema.mjs';
 
 /** manifest 里**实际存在**且与本次交付相关的字段 —— 只读这些，不发明字段。 */
 export const MANIFEST_PATH = 'protocol/manifest.json';
@@ -183,6 +184,8 @@ export function validateDesign(options = {}) {
     }
   }
 
+  let previewValue = undefined;
+
   // ── 5. designId 断言（可选）──────────────────────────────────────────────
   if (options.designId !== undefined && contract !== undefined && options.designId !== contract.designId) {
     errors.push(error('design-id-mismatch', `--design`, `期望 designId=${options.designId}，契约里是 ${contract.designId}`));
@@ -208,6 +211,61 @@ export function validateDesign(options = {}) {
       } else {
         summary.pages = previewParsed.value.pages.length;
         summary.nodes = countNodes(previewParsed.value);
+        previewValue = previewParsed.value;
+      }
+    }
+  }
+
+  // ── 7. 设计资源（assets.json）：路径安全 / 格式 / 体积 / 引用交叉检查 ──────
+  // 资源是交付的一部分，必须在提交前就能被拒绝；渲染层的净化只是纵深防御。
+  if (effectiveDesignId !== null && effectiveDesignId !== undefined) {
+    const assetsRelative = `designs/${effectiveDesignId}/assets.json`;
+    const assetsAbs = join(root, assetsRelative);
+    const declared = summary.pages !== undefined && summary.nodes !== undefined;
+    if (!existsSync(assetsAbs)) {
+      // 没清单但 preview 引用了资源 → 必须报错（不允许静默空白）
+      if (declared) {
+        const refs = checkAssetReferences(previewValue, new Map());
+        for (const item of refs) errors.push({ ...item, path: `${assetsRelative}#${item.path}` });
+      }
+    } else {
+      const assetsRead = readTextFile(assetsAbs, assetsRelative);
+      if (!assetsRead.ok) {
+        errors.push(assetsRead.error);
+      } else {
+        let parsed;
+        try { parsed = JSON.parse(assetsRead.text); } catch { parsed = undefined; }
+        if (parsed === undefined) {
+          errors.push(error('invalid-json', assetsRelative, 'JSON 语法无效'));
+        } else {
+          const result = validateAssets(parsed, { designId: effectiveDesignId });
+          for (const item of result.errors) errors.push({ ...item, path: `${assetsRelative}#${item.path}` });
+          // 引用交叉检查（preview → 清单）
+          if (declared) {
+            for (const item of checkAssetReferences(previewValue, result.assets)) {
+              errors.push({ ...item, path: `designs/${effectiveDesignId}/preview.json#${item.path}` });
+            }
+          }
+          // 逐个实测：文件必须在仓库里、可读、且不超过（收紧后的）上限
+          let verifiedBytes = 0;
+          for (const asset of result.assets.values()) {
+            const abs = join(root, asset.path);
+            if (!existsSync(abs)) {
+              errors.push(error('missing-asset-file', `${assetsRelative}#${asset.path}`, '资源文件不存在（同步不完整）'));
+              continue;
+            }
+            const size = statSync(abs).size;
+            if (size > asset.maxBytes) {
+              errors.push(error('asset-too-large', `${assetsRelative}#${asset.path}`, `实际 ${size} 字节超过上限 ${asset.maxBytes}（kind=${asset.kind}）`));
+              continue;
+            }
+            verifiedBytes += size;
+          }
+          summary.assets = result.assets.size;
+          summary.assetBytes = verifiedBytes;
+          summary.assetSchemaVersion = ASSET_SCHEMA_VERSION;
+          info.push(`资源：${result.assets.size} 个，实测 ${verifiedBytes} 字节（上限 ${ASSET_LIMITS.maxDeclaredBytes}）`);
+        }
       }
     }
   }

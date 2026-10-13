@@ -38,14 +38,41 @@
             "children": [
               {
                 "id": "brand",
-                "type": "card",
+                "type": "frame",
                 "props": {
-                  "title": "录制助手",
-                  "subtitle": "INNERREC STUDIO"
+                  "direction": "row",
+                  "layoutMode": "flow",
+                  "gap": 12,
+                  "padding": 0
                 },
                 "layout": {
                   "mode": "flow"
-                }
+                },
+                "children": [
+                  {
+                    "id": "icon-brand",
+                    "type": "icon",
+                    "props": {
+                      "asset": "brand",
+                      "size": 43
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "brand-card",
+                    "type": "card",
+                    "props": {
+                      "title": "录制助手",
+                      "subtitle": "INNERREC STUDIO",
+                      "elevation": "none"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ]
               },
               {
                 "id": "navhead",
@@ -61,52 +88,61 @@
                 }
               },
               {
-                "id": "nav-all",
-                "type": "button",
+                "id": "nav-list",
+                "type": "list",
                 "props": {
-                  "label": "全部文件",
-                  "variant": "primary",
-                  "disabled": false
+                  "dense": false
                 },
                 "layout": {
                   "mode": "flow"
-                }
-              },
-              {
-                "id": "nav-video",
-                "type": "button",
-                "props": {
-                  "label": "屏幕录制",
-                  "variant": "ghost",
-                  "disabled": false
                 },
-                "layout": {
-                  "mode": "flow"
-                }
-              },
-              {
-                "id": "nav-audio",
-                "type": "button",
-                "props": {
-                  "label": "内部录音",
-                  "variant": "ghost",
-                  "disabled": false
-                },
-                "layout": {
-                  "mode": "flow"
-                }
-              },
-              {
-                "id": "nav-extract",
-                "type": "button",
-                "props": {
-                  "label": "提取音频",
-                  "variant": "ghost",
-                  "disabled": false
-                },
-                "layout": {
-                  "mode": "flow"
-                }
+                "children": [
+                  {
+                    "id": "nav-all",
+                    "type": "list-item",
+                    "props": {
+                      "label": "全部文件",
+                      "asset": "nav-all",
+                      "selected": true
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "nav-video",
+                    "type": "list-item",
+                    "props": {
+                      "label": "屏幕录制",
+                      "asset": "nav-video"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "nav-audio",
+                    "type": "list-item",
+                    "props": {
+                      "label": "内部录音",
+                      "asset": "nav-audio"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  },
+                  {
+                    "id": "nav-extract",
+                    "type": "list-item",
+                    "props": {
+                      "label": "提取音频",
+                      "asset": "nav-extract"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ]
               },
               {
                 "id": "nav-div",
@@ -117,16 +153,27 @@
                 }
               },
               {
-                "id": "settings",
-                "type": "button",
+                "id": "settings-list",
+                "type": "list",
                 "props": {
-                  "label": "设置与工具",
-                  "variant": "ghost",
-                  "disabled": false
+                  "dense": false
                 },
                 "layout": {
                   "mode": "flow"
-                }
+                },
+                "children": [
+                  {
+                    "id": "settings",
+                    "type": "list-item",
+                    "props": {
+                      "label": "设置与工具",
+                      "asset": "nav-settings"
+                    },
+                    "layout": {
+                      "mode": "flow"
+                    }
+                  }
+                ]
               },
               {
                 "id": "hint",
@@ -237,12 +284,16 @@
                   "gap": 8,
                   "padding": 0
                 },
+                "layout": {
+                  "mode": "flow"
+                },
                 "children": [
                   {
                     "id": "chip-all",
-                    "type": "badge",
+                    "type": "chip",
                     "props": {
                       "label": "全部文件",
+                      "state": "selected",
                       "tone": "primary"
                     },
                     "layout": {
@@ -251,10 +302,10 @@
                   },
                   {
                     "id": "chip-video",
-                    "type": "badge",
+                    "type": "chip",
                     "props": {
                       "label": "屏幕录制",
-                      "tone": "secondary"
+                      "state": "normal"
                     },
                     "layout": {
                       "mode": "flow"
@@ -262,57 +313,25 @@
                   },
                   {
                     "id": "chip-audio",
-                    "type": "badge",
+                    "type": "chip",
                     "props": {
                       "label": "内部录音",
-                      "tone": "secondary"
+                      "state": "normal"
                     },
                     "layout": {
                       "mode": "flow"
                     }
                   }
-                ],
-                "layout": {
-                  "mode": "flow"
-                }
+                ]
               },
               {
                 "id": "search",
-                "type": "frame",
+                "type": "input",
                 "props": {
-                  "direction": "row",
-                  "layoutMode": "flow",
-                  "gap": 8,
-                  "padding": 8
+                  "placeholder": "搜索剧名、集数或文件",
+                  "kind": "search",
+                  "state": "normal"
                 },
-                "children": [
-                  {
-                    "id": "search-ico",
-                    "type": "text",
-                    "props": {
-                      "text": "⌕",
-                      "size": 13,
-                      "weight": "normal",
-                      "tone": "tertiary"
-                    },
-                    "layout": {
-                      "mode": "flow"
-                    }
-                  },
-                  {
-                    "id": "search-ph",
-                    "type": "text",
-                    "props": {
-                      "text": "搜索剧名、集数或文件",
-                      "size": 13,
-                      "weight": "normal",
-                      "tone": "tertiary"
-                    },
-                    "layout": {
-                      "mode": "flow"
-                    }
-                  }
-                ],
                 "layout": {
                   "mode": "flow"
                 }
@@ -374,7 +393,9 @@
                     "props": {
                       "label": "末日宿舍求生：从刷广告开始变强",
                       "meta": "第 04 集 · 录屏 · 00:38 · 3.0 MB",
-                      "trailing": "›"
+                      "trailing": "›",
+                      "asset": "file-video",
+                      "selected": true
                     },
                     "layout": {
                       "mode": "flow"
@@ -386,7 +407,9 @@
                     "props": {
                       "label": "末日宿舍求生：从刷广告开始变强",
                       "meta": "第 06 集 · 录屏 · 01:02 · 4.8 MB",
-                      "trailing": "›"
+                      "trailing": "›",
+                      "asset": "file-video",
+                      "selected": false
                     },
                     "layout": {
                       "mode": "flow"
@@ -398,7 +421,9 @@
                     "props": {
                       "label": "短剧片段 · 内部音频",
                       "meta": "未识别剧集 · 录音 · 01:42 · 12.6 MB",
-                      "trailing": "›"
+                      "trailing": "›",
+                      "asset": "file-audio",
+                      "selected": false
                     },
                     "layout": {
                       "mode": "flow"
@@ -530,9 +555,11 @@
               },
               {
                 "id": "preview",
-                "type": "image-placeholder",
+                "type": "image",
                 "props": {
-                  "label": "▷ 预览区"
+                  "asset": "player-frame",
+                  "fit": "contain",
+                  "alt": "播放区（设计占位）"
                 },
                 "layout": {
                   "mode": "flow"
@@ -599,12 +626,11 @@
                 "children": [
                   {
                     "id": "ocr-ico",
-                    "type": "text",
+                    "type": "icon",
                     "props": {
-                      "text": "▧",
+                      "asset": "ocr",
                       "size": 22,
-                      "weight": "normal",
-                      "tone": "primary"
+                      "tone": "accent"
                     },
                     "layout": {
                       "mode": "flow"
@@ -672,7 +698,7 @@
                 "type": "button",
                 "props": {
                   "label": "查看与确认识别",
-                  "variant": "ghost",
+                  "variant": "secondary",
                   "disabled": false
                 },
                 "layout": {

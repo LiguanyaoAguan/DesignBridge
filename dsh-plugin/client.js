@@ -92,6 +92,14 @@ window.__ModuleLoader__.load({
     /** 自动打开的最近一次诊断（成功/失败），显示在面板里便于排查。 */
     let autoOpenDiag = '';
 
+    /**
+     * Preview 组件类型白名单 —— **本文件内唯一的一份**。
+     * ⚠️ 必须与 `src/model/preview-schema.mjs` 的 COMPONENT_TYPES 同步；
+     * 二者由 `checks/render-check.mjs` 的「内联副本同步性」用例强制校验
+     * （历史上这里曾出现多份互相不同步的副本，导致协议加了组件却渲染不出来）。
+     */
+    const PREVIEW_COMPONENT_TYPES = Object.freeze(['frame','text','button','card','list','list-item','badge','divider','image-placeholder','icon','image','input','chip']);
+
     /** `read` 每页最多行数上限（宿主 workspaceFiles 的 maxLines 默认为 5000）。 */
     const PAGE_MAX_LINES = 5000;
     /** 分页安全上限：防止异常数据导致无限循环。5000 × 20 = 10 万行，远超任何设计契约。 */
@@ -340,6 +348,31 @@ window.__ModuleLoader__.load({
 .db-preview-badge[data-db-tone="success"] { background:var(--db-success-soft,var(--dsw-alias-bg-l2)); color:var(--db-success,var(--dsw-alias-state-success-primary)); }
 .db-preview-divider { height:1px; width:100%; background:var(--db-border,var(--dsw-alias-border-l2)); }
 .db-preview-image-placeholder { min-height:80px; display:grid; place-items:center; border:1px dashed var(--db-border,var(--dsw-alias-border-l2)); border-radius:var(--db-radius-card,0); background:var(--db-surface,transparent); color:var(--db-text-secondary,var(--dsw-alias-label-tertiary)); }
+.db-preview-button[data-db-variant="secondary"] { background:var(--db-surface,var(--dsw-alias-bg-base)); border-color:var(--db-border,var(--dsw-alias-border-l2)); color:var(--db-text-primary,var(--dsw-alias-label-primary)); }
+.db-preview-icon { display:inline-block; object-fit:contain; flex:none; vertical-align:middle; }
+.db-preview-icon[data-db-align="center"] { align-self:center; }
+.db-preview-icon[data-db-align="end"] { align-self:flex-end; }
+.db-preview-icon[data-db-tone="secondary"] { opacity:.78; }
+.db-preview-icon[data-db-tone="tertiary"] { opacity:.5; }
+.db-preview-asset-missing { display:inline-grid; place-items:center; border:1px dashed var(--dsw-alias-state-error-primary); border-radius:6px; color:var(--dsw-alias-state-error-primary); font-size:11px; line-height:1; }
+.db-preview-image { display:block; width:100%; min-height:60px; border-radius:var(--db-radius-card,0); background:var(--db-surface,transparent); }
+.db-preview-image[data-db-fit="cover"] { object-fit:cover; }
+.db-preview-image[data-db-fit="contain"] { object-fit:contain; }
+.db-preview-image.db-preview-asset-missing { display:grid; place-items:center; min-height:80px; padding:8px; border:1px dashed var(--dsw-alias-state-error-primary); border-radius:var(--db-radius-card,0); color:var(--dsw-alias-state-error-primary); }
+.db-preview-input { display:flex; align-items:center; gap:8px; padding:9px 12px; border:1px solid var(--db-border,var(--dsw-alias-border-l2)); border-radius:var(--db-radius-pill,10px); background:var(--db-surface,var(--dsw-alias-bg-base)); color:var(--db-text-secondary,var(--dsw-alias-label-secondary)); }
+.db-preview-input[data-db-state="focused"] { border-color:var(--db-accent,var(--dsw-alias-brand-primary)); }
+.db-preview-input[data-db-state="disabled"] { opacity:.55; }
+.db-preview-input[data-db-filled="true"] .db-preview-input-text { color:var(--db-text-primary,var(--dsw-alias-label-primary)); }
+.db-preview-input-text { flex:1 1 auto; min-width:0; }
+.db-preview-chip { align-self:flex-start; padding:4px 11px; border:1px solid var(--db-border,var(--dsw-alias-border-l2)); border-radius:var(--db-radius-pill,999px); background:var(--db-surface,var(--dsw-alias-bg-base)); color:var(--db-text-secondary,var(--dsw-alias-label-secondary)); }
+.db-preview-chip[data-db-state="selected"] { background:var(--db-accent-soft,var(--dsw-alias-bg-l2)); border-color:var(--db-accent-soft,var(--dsw-alias-border-l2)); color:var(--db-accent,var(--dsw-alias-label-primary)); }
+.db-preview-chip[data-db-state="disabled"] { opacity:.5; }
+.db-preview-listitem[data-db-selected="true"] { background:var(--db-accent-soft,var(--dsw-alias-bg-l2)); border-color:var(--db-accent-soft,var(--dsw-alias-border-l2)); }
+.db-preview-listitem-icon { flex:none; border-radius:6px; }
+.db-preview-listitem-text { display:flex; flex-direction:column; gap:2px; min-width:0; flex:1 1 55%; }
+.db-preview-listitem-meta { flex:0 1 auto; }
+.db-preview-card[data-db-elevation="sm"] { box-shadow:0 1px 2px var(--dsw-alias-border-l2); }
+.db-preview-card[data-db-elevation="md"] { box-shadow:0 4px 14px var(--dsw-alias-border-l2); }
 .db-preview-selection { min-width:0; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; padding:10px; overflow-wrap:anywhere; }
 .db-preview-selection h3 { margin:0 0 6px; font-size:13px; }
 .db-preview-selection dl { display:grid; grid-template-columns:65px minmax(0,1fr); gap:4px; margin:0; font-size:11px; }
@@ -524,21 +557,25 @@ window.__ModuleLoader__.load({
         context.count += 1;
         if (context.count > 2000) { add(path, '每页节点数超过 2000', 'limit-exceeded'); return; }
         if (depth > 12) { add(path, '树深度超过 12', 'limit-exceeded'); return; }
-        const types = ['frame','text','button','card','list','list-item','badge','divider','image-placeholder'];
+        // ⚠️ 这份内联表必须与 src/model/preview-schema.mjs **保持同步**：
+        //    client.js 是经典单文件插件，无法 import 模块，故此处是刻意的副本。
+        const types = PREVIEW_COMPONENT_TYPES;
         if (!types.includes(n.type)) { add(`${path}.type`, '未知组件类型', 'unknown-component-type'); return; }
-        const specs = { frame:['direction','layoutMode','gap','padding'], text:['text','size','weight','tone'], button:['label','variant','disabled'], card:['title','subtitle'], list:['dense'], 'list-item':['label','meta','trailing'], badge:['label','tone'], divider:[], 'image-placeholder':['label'] };
+        const specs = { frame:['direction','layoutMode','gap','padding'], text:['text','size','weight','tone'], button:['label','variant','disabled'], card:['title','subtitle','elevation'], list:['dense'], 'list-item':['label','subtitle','meta','trailing','asset','selected'], badge:['label','tone'], divider:[], 'image-placeholder':['label'], icon:['asset','size','tone','align','label'], image:['asset','fit','alt'], input:['placeholder','value','kind','state'], chip:['label','state','tone'] };
         if (!obj(n.props)) { add(`${path}.props`, 'props 必须是对象', 'type-mismatch'); return; }
         if (Object.keys(n.props).some(k => !specs[n.type].includes(k))) add(`${path}.props`, '包含未知 props 字段', 'unknown-field');
-        const requiredProps = { frame:['direction','layoutMode'], text:['text'], button:['label'], card:['title'], list:[], 'list-item':['label'], badge:['label'], divider:[], 'image-placeholder':['label'] }[n.type];
+        const requiredProps = { frame:['direction','layoutMode'], text:['text'], button:['label'], card:['title'], list:[], 'list-item':['label'], badge:['label'], divider:[], 'image-placeholder':['label'], icon:['asset'], image:['asset'], input:['placeholder'], chip:['label'] }[n.type];
         for (const key of requiredProps) if (!(key in (n.props || {}))) add(`${path}.props.${key}`, '缺少必填属性');
         for (const [key, val] of Object.entries(n.props || {})) if (typeof val === 'string' && Array.from(val).length > 4096) add(`${path}.props.${key}`, '字符串超过 4096 个码点');
         const p = n.props || {};
-        const enums = { 'frame.direction':['row','column'], 'frame.layoutMode':['flow','absolute'], 'text.weight':['normal','medium','semibold','bold'], 'text.tone':['primary','secondary','tertiary'], 'button.variant':['primary','ghost'], 'badge.tone':['primary','secondary','tertiary','success','warning','danger'] };
+        const enums = { 'frame.direction':['row','column'], 'frame.layoutMode':['flow','absolute'], 'text.weight':['normal','medium','semibold','bold'], 'text.tone':['primary','secondary','tertiary'], 'button.variant':['primary','secondary','ghost'], 'badge.tone':['primary','secondary','tertiary','success','warning','danger'], 'card.elevation':['none','sm','md'], 'icon.tone':['primary','secondary','tertiary','accent'], 'icon.align':['start','center','end'], 'image.fit':['cover','contain'], 'input.kind':['search','text'], 'input.state':['normal','focused','disabled'], 'chip.state':['normal','selected','disabled'], 'chip.tone':['primary','secondary'] };
         for (const [key, choices] of Object.entries(enums)) { const [type, prop] = key.split('.'); if (n.type === type && p[prop] !== undefined && !choices.includes(p[prop])) add(`${path}.props.${prop}`, '枚举值无效'); }
         if (n.type === 'frame' && (!['row','column'].includes(p.direction) || !['flow','absolute'].includes(p.layoutMode) || ['gap','padding'].some(k => p[k] !== undefined && (!Number.isFinite(p[k]) || p[k] < 0 || p[k] > 512)))) add(`${path}.props`, 'frame layout 属性无效');
         if (n.type === 'text' && (typeof p.text !== 'string' || (p.size !== undefined && (!Number.isFinite(p.size) || p.size < 1 || p.size > 256)))) add(`${path}.props`, 'text 属性无效');
-        if (['button','card','list-item','badge','image-placeholder'].includes(n.type) && Object.entries(p).some(([k,v]) => ['label','title','subtitle','meta','trailing'].includes(k) && typeof v !== 'string')) add(`${path}.props`, '文本属性必须是字符串');
+        if (['button','card','list-item','badge','image-placeholder','icon','image','input','chip'].includes(n.type) && Object.entries(p).some(([k,v]) => ['label','title','subtitle','meta','trailing','asset','alt','placeholder','value'].includes(k) && typeof v !== 'string')) add(`${path}.props`, '文本属性必须是字符串');
         if (n.type === 'button' && p.disabled !== undefined && typeof p.disabled !== 'boolean') add(`${path}.props.disabled`, '必须为布尔值');
+        if (n.type === 'icon' && p.size !== undefined && (!Number.isFinite(p.size) || p.size < 8 || p.size > 128)) add(`${path}.props.size`, 'icon.size 必须是 8–128');
+        if (n.type === 'list-item' && p.selected !== undefined && typeof p.selected !== 'boolean') add(`${path}.props.selected`, '必须为布尔值');
         if (n.type === 'list' && p.dense !== undefined && typeof p.dense !== 'boolean') add(`${path}.props.dense`, '必须为布尔值');
         if (n.layout !== undefined) {
           if (!obj(n.layout)) add(`${path}.layout`, 'layout 必须是对象', 'type-mismatch');
@@ -945,26 +982,187 @@ window.__ModuleLoader__.load({
       return { vars, resolved, ignored, gated };
     }
 
-    function renderPreviewNode(node, selectedId, onSelect, parentMode) {
+    // ── v0.7 设计资源：安全加载（readBytes → data: URI）─────────────────────────
+    //
+    // 为什么用 <img src="data:..."> 而不是内联 SVG 原文：
+    //   浏览器把 <img> 里的 SVG 当**静态图片**处理 —— 不执行脚本、不发起外部请求。
+    //   再叠一层文本净化（去掉 script / on* / javascript: / 外部引用）做纵深防御。
+    //   绝不用 dangerouslySetInnerHTML 插入设计方提供的 SVG。
+    const ASSET_MIME = Object.freeze({
+      '.svg': 'image/svg+xml',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
+    });
+
+    /** 资源目录（相对会话工作区根，与契约路径同基准）。 */
+    function assetsManifestRelative(designId) {
+      return `${DESIGN_ROOT}/designs/${designId}/assets.json`;
+    }
+    function assetFileRelative(designId, assetPath) {
+      return `${DESIGN_ROOT}/${assetPath}`;
+    }
+    function mimeForAssetPath(assetPath) {
+      const lower = String(assetPath).toLowerCase();
+      const dot = lower.lastIndexOf('.');
+      return dot < 0 ? null : ASSET_MIME[lower.slice(dot)] ?? null;
+    }
+
+    /** 字节 → base64。容忍 Uint8Array / ArrayBuffer / 数字数组 / { data } 包装。 */
+    function bytesToBase64(input) {
+      let bytes = null;
+      if (input instanceof Uint8Array) bytes = input;
+      else if (input instanceof ArrayBuffer) bytes = new Uint8Array(input);
+      else if (Array.isArray(input)) bytes = Uint8Array.from(input);
+      else if (input && typeof input === 'object' && Array.isArray(input.data)) bytes = Uint8Array.from(input.data);
+      else if (input && typeof input === 'object' && input.data instanceof Uint8Array) bytes = input.data;
+      if (bytes === null) return null;
+      let binary = '';
+      const CHUNK = 0x8000;
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + CHUNK, bytes.length)));
+      }
+      try { return btoa(binary); } catch { return null; }
+    }
+
+    /** 把 SVG 文本编成 data URI（先净化，净化失败一律拒绝）。 */
+    function svgToDataUri(text) {
+      const safe = sanitizeSvgText(text);
+      if (safe === null) return null;
+      let bytes;
+      try { bytes = new TextEncoder().encode(safe); } catch { return null; }
+      const b64 = bytesToBase64(bytes);
+      return b64 === null ? null : `data:image/svg+xml;base64,${b64}`;
+    }
+
+    /**
+     * SVG 净化：**纵深防御**（第一道防线是 <img> 的静态模式）。
+     * 保守策略：出现高危结构直接判定不安全并拒绝，而不是试图"修好"它。
+     * @returns {string|null} 净化后的 SVG，或 null（拒绝）
+     */
+    function sanitizeSvgText(text) {
+      if (typeof text !== 'string' || text.length === 0) return null;
+      if (text.length > 128 * 1024) return null;
+      // 高危结构：脚本、外来命名空间、引用外部资源 —— 直接拒绝
+      if (/<\s*(script|foreignObject|iframe|object|embed|audio|video|animate)\b/i.test(text)) return null;
+      if (/(?:href|xlink:href|src)\s*=\s*["']?\s*(?:https?:)?\/\//i.test(text)) return null;
+      if (/<\s*image\b/i.test(text)) return null;
+      let out = text;
+      out = out.replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+      out = out.replace(/(?:href|xlink:href)\s*=\s*("[^"]*"|'[^']*')/gi, (match, value) => (/^\s*["']?\s*#/.test(value) ? match : ''));
+      out = out.replace(/url\(\s*["']?\s*(?:https?|data):[^)]*\)/gi, '');
+      // 净化后仍残留 → 拒绝
+      if (/<\s*script|on[a-z]+\s*=|javascript:|https?:\/\//i.test(out)) return null;
+      return out;
+    }
+
+    /**
+     * 读一个资源并转成可直接放进 <img src> 的 data URI。**永不抛**。
+     *
+     * 通道选择（重要）：
+     *  - SVG 是文本 → 走已验证可用的 `readWorkspaceFiles.read`（文本通道），再净化后编码；
+     *  - PNG/JPEG/WebP 是二进制 → 走 `readBytes`；该通道不可用时**显式降级**并说明原因，
+     *    绝不静默显示空白。
+     */
+    async function loadDesignAsset(remote, sessionId, designId, asset, signal) {
+      const mime = mimeForAssetPath(asset.path);
+      if (mime === null) return { ok: false, kind: 'unsupported-format', detail: asset.path };
+      const relative = assetFileRelative(designId, asset.path);
+
+      if (asset.kind === 'svg') {
+        const read = await readWorkspaceText(remote, sessionId, relative, signal).catch(() => ({ ok: false, kind: 'read-failed' }));
+        if (!read.ok) return { ok: false, kind: read.kind ?? 'read-failed', detail: read.detail };
+        if (typeof read.source?.bytes === 'number' && read.source.bytes > (asset.maxBytes ?? 64 * 1024)) {
+          return { ok: false, kind: 'too-large', detail: `${read.source.bytes} 字节` };
+        }
+        const uri = svgToDataUri(read.text);
+        if (uri === null) return { ok: false, kind: 'unsafe-svg', detail: asset.path };
+        return { ok: true, uri, kind: 'svg' };
+      }
+
+      const readBytes = remote?.workspaceFiles?.readBytes;
+      if (typeof readBytes !== 'function') {
+        return { ok: false, kind: 'binary-channel-unavailable', detail: '宿主未提供 readBytes' };
+      }
+      let result;
+      try {
+        result = await readBytes.call(remote.workspaceFiles, sessionId, relative, {}, signal);
+      } catch (error) {
+        return { ok: false, kind: 'read-failed', detail: String(error && error.message ? error.message : error) };
+      }
+      if (result === undefined || result === null || result.ok !== true) {
+        const err = (result && result.error) || {};
+        return { ok: false, kind: 'read-failed', code: err.code, detail: err.message };
+      }
+      const value = result.value || {};
+      const data = value.data !== undefined ? value.data : value;
+      if (typeof value.bytes === 'number' && value.bytes > (asset.maxBytes ?? 512 * 1024)) {
+        return { ok: false, kind: 'too-large', detail: `${value.bytes} 字节` };
+      }
+      const b64 = bytesToBase64(data);
+      if (b64 === null) return { ok: false, kind: 'decode-failed' };
+      return { ok: true, uri: `data:${mime};base64,${b64}`, kind: 'image' };
+    }
+
+    function renderPreviewNode(node, selectedId, onSelect, parentMode, assets) {
       if (!node || !Array.isArray(node.children) && node.children !== undefined || !node.props || typeof node.props !== 'object' || Array.isArray(node.props)) return null;
-      if (!['frame','text','button','card','list','list-item','badge','divider','image-placeholder'].includes(node.type)) return null;
+      if (!PREVIEW_COMPONENT_TYPES.includes(node.type)) return null;
       const selected = node.id === selectedId;
       const absolute = node.layout?.mode === 'absolute';
       const style = absolute ? { position: 'absolute', left: `${node.layout.x}px`, top: `${node.layout.y}px`, width: `${node.layout.width}px`, height: `${node.layout.height}px`, boxSizing: 'border-box' } : undefined;
       const frameAbsolute = node.type === 'frame' && node.props.layoutMode === 'absolute';
       const common = { key: node.id, className: `db-preview-node${selected ? ' is-selected' : ''}`, style, 'data-node-id': node.id, 'data-node-type': node.type, onClick: event => { event.stopPropagation(); onSelect(node.id); }, role: 'button', tabIndex: 0, 'aria-pressed': selected, onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(node.id); } } };
       const childStyle = { display: frameAbsolute ? 'block' : 'flex', flexDirection: node.props?.direction === 'row' ? 'row' : 'column', gap: `${node.props?.gap ?? 8}px`, padding: `${node.props?.padding ?? 8}px`, position: frameAbsolute ? 'relative' : undefined, boxSizing: 'border-box', minWidth: 0 };
-      const children = (node.children || []).map(child => renderPreviewNode(child, selectedId, onSelect, node.type === 'frame' ? node.props.layoutMode : 'flow')).filter(Boolean);
+      const children = (node.children || []).map(child => renderPreviewNode(child, selectedId, onSelect, node.type === 'frame' ? node.props.layoutMode : 'flow', assets)).filter(Boolean);
       const txt = v => String(v ?? '');
       switch (node.type) {
         case 'frame': return h('div', { ...common, className: `${common.className} db-preview-frame`, style: { ...childStyle, ...style } }, ...children);
-        case 'card': return h('section', { ...common, className: `${common.className} db-preview-card` }, h('strong', null, txt(node.props.title)), node.props.subtitle ? h('small', null, txt(node.props.subtitle)) : null, ...children);
+        case 'card': return h('section', { ...common, className: `${common.className} db-preview-card`, 'data-db-elevation': node.props.elevation ?? 'none' }, h('strong', null, txt(node.props.title)), node.props.subtitle ? h('small', null, txt(node.props.subtitle)) : null, ...children);
         case 'list': return h('div', { ...common, className: `${common.className} db-preview-list` }, ...children);
-        case 'list-item': return h('div', { ...common, className: `${common.className} db-preview-listitem` }, h('span', null, txt(node.props.label)), node.props.meta ? h('small', null, txt(node.props.meta)) : null, node.props.trailing ? h('span', null, txt(node.props.trailing)) : null);
+        case 'list-item': {
+          const hit = node.props.asset ? assets[node.props.asset] : undefined;
+          const lead = node.props.asset
+            ? (hit && hit.ok
+              ? h('img', { className: 'db-preview-listitem-icon', src: hit.uri, alt: '', width: 22, height: 22 })
+              : h('span', { className: 'db-preview-asset-missing db-preview-listitem-icon', title: `缺失资源：${node.props.asset}`, 'data-db-asset': node.props.asset }, '?'))
+            : null;
+          return h('div', { ...common, className: `${common.className} db-preview-listitem`, 'data-db-selected': node.props.selected === true ? 'true' : 'false' },
+            lead,
+            h('span', { className: 'db-preview-listitem-text' },
+              h('strong', null, txt(node.props.label)),
+              node.props.subtitle ? h('small', null, txt(node.props.subtitle)) : null),
+            node.props.meta ? h('small', { className: 'db-preview-listitem-meta' }, txt(node.props.meta)) : null,
+            node.props.trailing ? h('span', null, txt(node.props.trailing)) : null);
+        }
         case 'text': return h('div', { ...common, className: `${common.className} db-preview-text`, 'data-db-tone': node.props.tone ?? 'primary', style: { fontSize: `${node.props.size ?? 14}px`, fontWeight: ['bold','semibold'].includes(node.props.weight) ? 650 : node.props.weight === 'medium' ? 500 : 400, ...style } }, txt(node.props.text));
         case 'button': return h('div', { ...common, className: `db-preview-button db-preview-node${selected ? ' is-selected' : ''}${node.props.disabled ? ' is-disabled' : ''}`, 'data-db-variant': node.props.variant ?? 'ghost', 'aria-disabled': Boolean(node.props.disabled) }, txt(node.props.label));
         case 'badge': return h('div', { ...common, className: `${common.className} db-preview-badge`, 'data-db-tone': node.props.tone ?? 'secondary' }, txt(node.props.label));
         case 'divider': return h('div', { ...common, className: `${common.className} db-preview-divider`, 'aria-label': 'divider' });
+        case 'icon': {
+          const hit = assets[node.props.asset];
+          const size = node.props.size ?? 18;
+          const box = { width: `${size}px`, height: `${size}px` };
+          if (hit === undefined || hit.ok !== true) {
+            return h('span', { ...common, className: `${common.className} db-preview-icon db-preview-asset-missing`, 'data-db-asset': node.props.asset, 'data-db-tone': node.props.tone ?? 'primary', 'data-db-align': node.props.align ?? 'start', title: `缺失资源：${node.props.asset}`, style: { ...box, ...style } }, '?');
+          }
+          return h('img', { ...common, className: `${common.className} db-preview-icon`, src: hit.uri, alt: node.props.label ?? '', 'data-db-tone': node.props.tone ?? 'primary', 'data-db-align': node.props.align ?? 'start', 'data-db-asset': node.props.asset, width: size, height: size, style: { ...box, ...style } });
+        }
+        case 'image': {
+          const hit = assets[node.props.asset];
+          if (hit === undefined || hit.ok !== true) {
+            return h('div', { ...common, className: `${common.className} db-preview-image db-preview-asset-missing`, 'data-db-asset': node.props.asset, style }, `缺失资源：${node.props.asset}`);
+          }
+          return h('img', { ...common, className: `${common.className} db-preview-image`, src: hit.uri, alt: node.props.alt ?? '', 'data-db-fit': node.props.fit ?? 'cover', 'data-db-asset': node.props.asset, style });
+        }
+        case 'input': {
+          const filled = node.props.value !== undefined && node.props.value !== '';
+          return h('div', { ...common, className: `${common.className} db-preview-input`, 'data-db-kind': node.props.kind ?? 'text', 'data-db-state': node.props.state ?? 'normal', 'data-db-filled': filled ? 'true' : 'false', style },
+            h('span', { className: 'db-preview-input-icon' }, (node.props.kind ?? 'text') === 'search' ? '⌕' : ''),
+            h('span', { className: 'db-preview-input-text' }, filled ? txt(node.props.value) : txt(node.props.placeholder)),
+            filled ? h('span', { className: 'db-preview-input-clear' }, '✕') : null);
+        }
+        case 'chip': return h('div', { ...common, className: `${common.className} db-preview-chip`, 'data-db-state': node.props.state ?? 'normal', 'data-db-tone': node.props.tone ?? 'secondary' }, txt(node.props.label));
         case 'image-placeholder': return h('div', { ...common, className: `${common.className} db-preview-image-placeholder` }, `▧ ${txt(node.props.label)}`);
         default: return null;
       }
@@ -1107,6 +1305,38 @@ window.__ModuleLoader__.load({
       /** 交付校验索引的匹配结果；null = 尚未读到。 */
       const [validation, setValidation] = React.useState(null);
 
+      /** 设计资源：asset id → { ok:true, uri } | { ok:false, kind }。缺失/非法一律显式降级。 */
+      const [assetUris, setAssetUris] = React.useState({});
+
+      // 资源加载：清单（assets.json）→ 逐个 readBytes → data: URI。
+      // 读不到清单/资源不阻断主流程：图标与图片降级为可见的"缺失资源"占位。
+      React.useEffect(() => {
+        const controller = new AbortController();
+        let cancelled = false;
+        const designId = state.contract ? state.contract.designId : undefined;
+        if (state.phase !== 'ready' || typeof designId !== 'string' || designId === '' || sessionId === undefined || remote === undefined) {
+          return () => { cancelled = true; controller.abort(); };
+        }
+        readWorkspaceText(remote, sessionId, assetsManifestRelative(designId), controller.signal)
+          .then(async (read) => {
+            if (cancelled) return;
+            if (!read.ok) { setAssetUris({}); return; }
+            let manifest = null;
+            try { manifest = JSON.parse(read.text); } catch { manifest = null; }
+            const list = manifest && Array.isArray(manifest.assets) ? manifest.assets : [];
+            const next = {};
+            for (const asset of list) {
+              if (cancelled) return;
+              if (asset === null || typeof asset !== 'object') continue;
+              if (typeof asset.id !== 'string' || typeof asset.path !== 'string') continue;
+              next[asset.id] = await loadDesignAsset(remote, sessionId, designId, asset, controller.signal);
+            }
+            if (!cancelled) setAssetUris(next);
+          })
+          .catch(() => { if (!cancelled) setAssetUris({}); });
+        return () => { cancelled = true; controller.abort(); };
+      }, [state.phase, state.contract, sessionId, remote]);
+
       React.useEffect(() => {
         const controller = new AbortController();
         let cancelled = false;
@@ -1238,7 +1468,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'db-preview-viewport', 'data-designbridge-studio': 'canvas' },
             h('div', { className: 'db-preview-page', style: { width: `${page.viewport.widthDp}px`, minHeight: `${page.viewport.heightDp}px`, ...styleTokens.vars }, 'data-page-id': page.id, 'data-db-tokens-resolved': String(styleTokens.resolved.length), 'data-db-tokens-ignored': String(styleTokens.ignored.length), 'data-db-tokens-gated': String(styleTokens.gated.length) },
               h('div', { className: 'db-preview-page-title' }, `${page.title} · ${page.id}`),
-              renderPreviewNode(page.root, selectedId, id => setSelectedId(id), null))),
+              renderPreviewNode(page.root, selectedId, id => setSelectedId(id), null, assetUris))),
           h('section', { className: 'db-preview-selection', 'data-designbridge-studio': 'selection' },
             h('h3', null, '组件属性'),
             selectedNode ? h('dl', null,

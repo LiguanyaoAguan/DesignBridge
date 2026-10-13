@@ -18,6 +18,7 @@
  */
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
+import { COMPONENT_TYPES } from '../src/model/preview-schema.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -659,7 +660,7 @@ await run(async () => {
   return expect(
     '成功态：preview 里出现的组件类型全部已渲染',
     rendered.length === usedTypes.length && html.includes('data-node-id="root"'),
-    `用到 ${usedTypes.length}/9 类：${usedTypes.join(', ')}`,
+    `用到 ${rendered.length}/${usedTypes.length} 类；缺失：${usedTypes.filter(t => !html.includes(`data-node-type="${t}"`)).join(', ') || '无'}`,
   );
 });
 
@@ -979,6 +980,112 @@ await run(async () => {
   assert(st.includes('--db-text-primary:#1F2430'), '主文字应生效');
   assert(html.includes('data-db-tokens-gated="0"'), '不应再有被门控的角色');
   return expect('P2 门控解除：补齐文字色后画布组整体生效', true, 'ink/muted 别名命中');
+});
+
+// ── 4.7d v0.7：高保真组件与设计资源（渲染 / 降级 / 兼容）─────────────────────
+// 说明：本组用**克隆仓库现有 preview 的第一页**再替换根子节点的方式构造夹具，
+// 这样 designId/designVersion/screenId/orientation 仍与契约自洽，preview 能通过交叉校验。
+
+const v07BasePreview = JSON.parse(previewText);
+
+/** 用给定的根子节点构造一份仍然自洽的 preview。 */
+function previewWithRootChildren(children) {
+  const clone = JSON.parse(JSON.stringify(v07BasePreview));
+  clone.pages[0].root = { id: 'root', type: 'frame', props: { direction: 'row', layoutMode: 'flow' }, children };
+  return clone;
+}
+
+/** 提供自定义 preview；契约沿用仓库契约（或给定 tokens）。 */
+function servePreview(previewObj, designTokens) {
+  const contract = designTokens === undefined ? checkedInContract : { ...checkedInContract, designTokens };
+  const text = JSON.stringify(previewObj);
+  return async (_session, path) => {
+    if (path.endsWith('protocol/design-contract.json')) {
+      return textResult(JSON.stringify(contract), { absolutePath: `/workspace-example/${path}`, version: 'contract-v1' });
+    }
+    if (path.endsWith('delivery-index.json')) {
+      return { ok: false, error: { code: 'workspace-file/not-found', message: 'ENOENT: no index' } };
+    }
+    if (path.endsWith('preview.json')) {
+      return textResult(text, { absolutePath: `/workspace-example/${path}`, version: 'preview-v1' });
+    }
+    // 资源清单/资源本体：一律读不到 → 走"缺失资源"降级路径
+    return { ok: false, error: { code: 'workspace-file/not-found', message: 'ENOENT' } };
+  };
+}
+
+const V07_NODES = [
+  { id: 'n-icon', type: 'icon', props: { asset: 'nav-all', size: 24, tone: 'accent', align: 'center' }, layout: { mode: 'flow' } },
+  { id: 'n-image', type: 'image', props: { asset: 'cover', fit: 'contain', alt: '封面' }, layout: { mode: 'flow' } },
+  { id: 'n-input', type: 'input', props: { placeholder: '搜索剧名', kind: 'search', state: 'focused' }, layout: { mode: 'flow' } },
+  { id: 'n-input2', type: 'input', props: { placeholder: '名称', value: '已填内容' }, layout: { mode: 'flow' } },
+  { id: 'n-chip', type: 'chip', props: { label: '全部文件', state: 'selected', tone: 'primary' }, layout: { mode: 'flow' } },
+  { id: 'n-chip2', type: 'chip', props: { label: '已停用', state: 'disabled' }, layout: { mode: 'flow' } },
+  { id: 'n-btn2', type: 'button', props: { label: '次级按钮', variant: 'secondary' }, layout: { mode: 'flow' } },
+  { id: 'n-card', type: 'card', props: { title: '卡片', subtitle: '带阴影', elevation: 'md' }, layout: { mode: 'flow' } },
+  { id: 'n-li', type: 'list-item', props: { label: '文件行', subtitle: '副标题', meta: '00:38', trailing: '›', asset: 'file-video', selected: true }, layout: { mode: 'flow' } },
+];
+
+await run(async () => {
+  read_impl = servePreview(previewWithRootChildren(V07_NODES));
+  const { html, phase } = await render_panel(Panel, propsFor('s1'));
+  assert(phase === 'ready', `应 ready，实际 ${phase}`);
+  // 新组件都渲染出了各自的类与数据属性
+  assert(html.includes('db-preview-icon'), 'icon 应渲染');
+  assert(html.includes('data-db-tone="accent"'), 'icon tone 应落到属性');
+  assert(html.includes('data-db-align="center"'), 'icon align 应落到属性');
+  assert(html.includes('db-preview-image'), 'image 应渲染');
+  assert(html.includes('data-db-fit="contain"'), 'image fit 应落到属性');
+  assert(html.includes('db-preview-input'), 'input 应渲染');
+  assert(html.includes('data-db-kind="search"'), 'input kind 应落到属性');
+  assert(html.includes('data-db-state="focused"'), 'input state 应落到属性');
+  assert(html.includes('db-preview-chip'), 'chip 应渲染');
+  assert(html.includes('data-db-state="selected"'), 'chip 选中态应落到属性');
+  assert(html.includes('data-db-state="disabled"'), 'chip 禁用态应落到属性');
+  assert(html.includes('data-db-variant="secondary"'), 'button secondary 应支持');
+  assert(html.includes('data-db-elevation="md"'), 'card elevation 应落到属性');
+  assert(html.includes('data-db-selected="true"'), 'list-item 选中态应落到属性');
+  return expect('v0.7 组件：icon/image/input/chip/secondary/elevation/selected 全部可渲染', true, '7 类新能力');
+});
+
+await run(async () => {
+  // 资源读不到（清单缺失）→ 必须**显式可见降级**，不能静默空白
+  read_impl = servePreview(previewWithRootChildren(V07_NODES));
+  const { html } = await render_panel(Panel, propsFor('s1'));
+  assert(html.includes('db-preview-asset-missing'), '图标缺失应渲染可见占位');
+  assert(html.includes('缺失资源：nav-all'), '占位应点名缺失的资源 id');
+  assert(html.includes('缺失资源：cover'), '图片缺失同样应点名');
+  assert(html.includes('data-db-asset="nav-all"'), '应带 data-db-asset 便于定位');
+  return expect('v0.7 降级：资源缺失时给出可见且可定位的提示', true, 'icon + image 均降级');
+});
+
+await run(async () => {
+  // 兼容：不含任何新组件的旧 preview 不得受影响（结构照旧、无降级噪音）
+  const legacy = previewWithRootChildren([
+    { id: 'l-text', type: 'text', props: { text: '旧设计' }, layout: { mode: 'flow' } },
+    { id: 'l-btn', type: 'button', props: { label: '旧按钮', variant: 'primary' }, layout: { mode: 'flow' } },
+  ]);
+  read_impl = servePreview(legacy);
+  const { html, phase } = await render_panel(Panel, propsFor('s1'));
+  assert(phase === 'ready', '旧 preview 应正常渲染');
+  assert(html.includes('旧设计') && html.includes('旧按钮'), '旧内容应照常出现');
+  // 只检查 DOM 区域：CSS 块里本来就有 .db-preview-asset-missing 规则
+  assert(!html.slice(html.indexOf('</style>')).includes('db-preview-asset-missing'), '不应凭空出现资源降级提示');
+  return expect('v0.7 兼容：不含新组件的旧设计零影响', true, '无降级噪音');
+});
+
+await run(async () => {
+  // **同步性守卫**：client.js 无法 import 模块，因此内联了组件白名单的副本。
+  // 历史上这份副本曾与协议脱节（协议加了组件、渲染器却直接 return null），
+  // 这条用例把"两份清单必须一致"变成可执行的约束。
+  const clientSource = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
+  const match = clientSource.match(/const PREVIEW_COMPONENT_TYPES = Object\.freeze\(\[([^\]]*)\]\)/);
+  assert(match !== null, 'client.js 应声明 PREVIEW_COMPONENT_TYPES');
+  const inlined = match[1].split(',').map(item => item.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+  assert(inlined.join('|') === [...COMPONENT_TYPES].join('|'), `内联副本与协议不一致：内联=${inlined.join(',')} 协议=${COMPONENT_TYPES.join(',')}`);
+  // 渲染器守卫与内联清单必须同源（不得再出现第二份硬编码数组）
+  assert(clientSource.includes('if (!PREVIEW_COMPONENT_TYPES.includes(node.type)) return null;'), '渲染器守卫必须复用同一常量');
+  return expect('v0.7 同步性：client.js 内联组件清单与协议一致', true, `${inlined.length} 类，单一来源`);
 });
 
 // ── 4.75 回归：preview 读取路径必须以「会话工作区根」为基准 ──────────────────
